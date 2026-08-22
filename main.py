@@ -10,19 +10,20 @@ from rag_sec.ingestion.pipeline import (
 
 
 async def main():
-
     db = get_database_manager()
 
     await db.initialize()
 
-    pipeline = IngestionPipeline()
+    pipeline = IngestionPipeline(
+        chunk_size=800,
+        chunk_overlap=100,
+    )
 
     result = await pipeline.ingest_latest(
         "AAPL",
         form_type="10-K",
     )
 
-    print("\n--- INGESTION RESULT ---")
     print(result)
 
     await db.close()
