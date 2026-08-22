@@ -8,8 +8,8 @@ from rag_sec.config import get_settings
 
 @lru_cache(maxsize=1)
 def get_chat_model() -> BaseChatModel:
+    """Build the configured chat provider on first use."""
     settings = get_settings().llm
-
     kwargs = {
         "temperature": settings.temperature,
     }

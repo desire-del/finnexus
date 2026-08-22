@@ -25,12 +25,19 @@ from rag_sec.ingestion.chunker import (
     SectionChunker,
 )
 
-from rag_sec.ingestion.embeddings import (
+from rag_sec.providers import (
     get_embedding_model,
 )
 
 from rag_sec.logging import (
     get_logger,
+)
+
+from rag_sec.observability import (
+    Phase,
+    set_span_attributes,
+    set_span_input,
+    track,
 )
 
 from rag_sec.schemas.chunk import (
@@ -124,6 +131,11 @@ class IngestionPipeline:
             )
         )
 
+    @track(
+        name="ingestion.latest_filing",
+        phase=Phase.INGESTION,
+        tags=["component:ingestion"],
+    )
     async def ingest_latest(
         self,
         identifier: str | int,
@@ -151,6 +163,37 @@ class IngestionPipeline:
 
         current_stage = (
             IngestionStage.DISCOVER
+        )
+
+        set_span_attributes(
+            {
+                "rag.ingestion.identifier": str(identifier),
+                "rag.ingestion.form_type": form_type,
+                "rag.embedding.provider": (
+                    self.settings.embedding.provider.value
+                ),
+                "rag.embedding.model": (
+                    self.settings.embedding.model_name
+                ),
+                "rag.embedding.dimension": (
+                    self.settings.embedding.dimension
+                ),
+            }
+        )
+        set_span_input(
+            {
+                "identifier": str(identifier),
+                "form_type": form_type,
+                "embedding_provider": (
+                    self.settings.embedding.provider.value
+                ),
+                "embedding_model": (
+                    self.settings.embedding.model_name
+                ),
+                "embedding_dimension": (
+                    self.settings.embedding.dimension
+                ),
+            }
         )
 
         try:
@@ -737,6 +780,12 @@ class IngestionPipeline:
         run_id: UUID,
         stage: IngestionStage,
     ) -> None:
+
+        set_span_attributes(
+            {
+                "rag.ingestion.stage": stage.value,
+            }
+        )
 
         async with self.db.session() as session:
 

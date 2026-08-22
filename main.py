@@ -1,58 +1,20 @@
 import asyncio
 
-from rag_sec.database.manager import (
-    get_database_manager,
+from rag_sec.application import answer_query, get_runtime
+from rag_sec.generation.generator import RAGAnswer
+from rag_sec.observability import (
+    configure_observability,
+    shutdown_observability,
+    trace_source,
 )
-from rag_sec.generation.generator import Generator
-from rag_sec.retrieval import Retriever
 
 
-async def main():
-
-    db = get_database_manager()
-
-    await db.initialize()
-
-    retriever = Retriever(
-        top_k=5,
-        dense_top_k=20,
-        lexical_top_k=20,
-    )
-
-    generator = Generator()
-
-    question = (
-        "How did foreign exchange "
-        "affect Apple's results?"
-    )
-
-    # ======================================
-    # RETRIEVAL
-    # ======================================
-
-    documents = await retriever.search(
-        question,
-        ticker="AAPL",
-        form_type="10-K",
-    )
-
-    # ======================================
-    # GENERATION
-    # ======================================
-
-    result = await generator.generate(
-        question,
-        documents,
-    )
-
+def render_answer(result: RAGAnswer) -> None:
     print("\nANSWER\n")
-
     print(result.answer)
-
     print("\nSOURCES\n")
 
     for source in result.sources:
-
         print(
             f"{source.source_id} | "
             f"{source.company_name} | "
@@ -60,15 +22,31 @@ async def main():
             f"{source.item} | "
             f"{source.accession_number}"
         )
-
-        print(
-            source.source_url
-        )
-
+        print(source.source_url)
         print()
 
-    await db.close()
+
+async def main() -> None:
+    runtime = get_runtime()
+
+    try:
+        await runtime.warmup()
+        result = await answer_query(
+            runtime,
+            "How did foreign exchange affect Apple's results?",
+            ticker="AAPL",
+            form_type="10-K",
+        )
+        render_answer(result)
+    finally:
+        await runtime.shutdown()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    configure_observability()
+
+    try:
+        with trace_source("cli"):
+            asyncio.run(main())
+    finally:
+        shutdown_observability()

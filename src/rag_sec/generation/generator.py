@@ -4,13 +4,20 @@ from langchain_core.messages import (
 )
 from pydantic import BaseModel
 
-from rag_sec.generation.chat_model import get_chat_model
 from rag_sec.generation.context import ContextBuilder
 from rag_sec.logging import get_logger
+from rag_sec.observability import (
+    Phase,
+    set_span_attributes,
+    set_span_input,
+    set_span_output,
+    track,
+)
 from rag_sec.prompts import (
     GENERATION_SYSTEM_PROMPT,
     build_generation_user_prompt,
 )
+from rag_sec.providers import get_chat_model
 
 log = get_logger(__name__)
 
@@ -54,14 +61,35 @@ class Generator:
             )
         )
 
+    @track(
+        name="generation.answer",
+        phase=Phase.GENERATION,
+        tags=["component:generator"],
+    )
     async def generate(
         self,
         question: str,
         documents,
     ) -> RAGAnswer:
 
+        set_span_attributes(
+            {
+                "rag.generation.question_length": len(question),
+                "rag.generation.document_count": len(documents),
+                "rag.generation.model": (
+                    self.model.__class__.__name__
+                ),
+            }
+        )
+        set_span_input(
+            {
+                "question_length": len(question),
+                "document_count": len(documents),
+            }
+        )
+
         if not documents:
-            return RAGAnswer(
+            result = RAGAnswer(
                 answer=(
                     "I could not find sufficient "
                     "evidence in the retrieved SEC filings "
@@ -69,6 +97,15 @@ class Generator:
                 ),
                 sources=[],
             )
+
+            set_span_output(
+                {
+                    "source_count": 0,
+                    "answer_length": len(result.answer),
+                }
+            )
+
+            return result
 
         bundle = self.context_builder.build(
             documents
@@ -174,6 +211,19 @@ class Generator:
         log.info(
             "answer_generated",
             source_count=len(sources),
+        )
+
+        set_span_attributes(
+            {
+                "rag.generation.source_count": len(sources),
+                "rag.generation.answer_length": len(result.answer),
+            }
+        )
+        set_span_output(
+            {
+                "source_count": len(sources),
+                "answer_length": len(result.answer),
+            }
         )
 
         return RAGAnswer(

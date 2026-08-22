@@ -2,6 +2,14 @@ from dataclasses import dataclass
 
 from langchain_core.documents import Document
 
+from rag_sec.observability import (
+    Phase,
+    set_span_attributes,
+    set_span_input,
+    set_span_output,
+    track,
+)
+
 
 @dataclass
 class ContextBundle:
@@ -11,10 +19,21 @@ class ContextBundle:
 
 class ContextBuilder:
 
+    @track(
+        name="generation.build_context",
+        phase=Phase.GENERATION,
+        tags=["component:context"],
+    )
     def build(
         self,
         documents: list[Document],
     ) -> ContextBundle:
+
+        set_span_input(
+            {
+                "document_count": len(documents),
+            }
+        )
 
         sources = {}
         blocks = []
@@ -57,7 +76,23 @@ Source URL: {metadata.get("source_url")}
 
             blocks.append(block)
 
-        return ContextBundle(
+        bundle = ContextBundle(
             text="\n\n---\n\n".join(blocks),
             sources=sources,
         )
+
+        set_span_attributes(
+            {
+                "rag.context.document_count": len(documents),
+                "rag.context.source_count": len(sources),
+                "rag.context.character_count": len(bundle.text),
+            }
+        )
+        set_span_output(
+            {
+                "source_count": len(sources),
+                "character_count": len(bundle.text),
+            }
+        )
+
+        return bundle
