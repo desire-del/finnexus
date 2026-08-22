@@ -153,47 +153,58 @@ class ObservabilitySettings(BaseSettings):
                 return LangfuseSettings()
             case ObservabilityProvider.NONE:
                 return None
+
+
+class EdgarSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="EDGAR_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    identity: str = Field(
+        min_length=3,
+        description="Identity used for SEC EDGAR requests.",
+    )
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra = "ignore"
+        extra="ignore",
     )
+
     environment: AppEnvironment = Field(
-        default=AppEnvironment.DEV,
-        description="The application environment. Options are 'dev', 'prod', or 'staging'."
-    )
-    # App settings
-    log_level: str = Field(
-        default="INFO",
-        description="The log level for the application. Options are 'DEBUG', 'INFO', 'WARNING', 'ERROR', or 'CRITICAL'. Default is 'INFO'."
+        default=AppEnvironment.DEV
     )
 
-    json_logging: bool = Field(
-        default=False,
-        description="Whether to enable JSON logging. Default is False. Set to True in production."
-    )
+    log_level: str = Field(default="INFO")
 
-    # Database settings
+    json_logging: bool = Field(default=False)
+
     database_url: str = Field(
-        default="postgresql://postgres:postgres@localhost:5432/finexus",
-        description="The database URL for the application. Default is 'postgresql://postgres:postgres@localhost:5432/finexus'."
+        default=(
+            "postgresql+asyncpg://"
+            "postgres:postgres@localhost:5433/finexus"
+        )
     )
 
-    # nested settings for embedding, LLM, and observability
     embedding: EmbeddingSettings = Field(
-        default_factory=EmbeddingSettings,
-        description="The settings for the embedding model."
-    )
-    llm: LLMSettings = Field(
-        default_factory=LLMSettings,
-        description="The settings for the LLM model."
-    )
-    observability: ObservabilitySettings = Field(
-        default_factory=ObservabilitySettings,
-        description="The settings for observability."
+        default_factory=EmbeddingSettings
     )
 
+    llm: LLMSettings = Field(
+        default_factory=LLMSettings
+    )
+
+    observability: ObservabilitySettings = Field(
+        default_factory=ObservabilitySettings
+    )
+
+    edgar: EdgarSettings = Field(
+        default_factory=EdgarSettings
+    )
 
 @lru_cache()
 def get_settings() -> Settings:
