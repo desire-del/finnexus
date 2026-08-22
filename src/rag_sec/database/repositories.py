@@ -402,6 +402,51 @@ class ProcessingRepository:
         return version
 
 
+    @staticmethod
+    async def get_active_ids(
+        session: AsyncSession,
+        *,
+        ticker: str | None = None,
+        form_type: str | None = None,
+        accession_number: str | None = None,
+    ) -> list[UUID]:
+
+        statement = (
+            select(ProcessingVersion.id)
+            .join(
+                Filing,
+                ProcessingVersion.filing_id == Filing.id,
+            )
+            .join(
+                Company,
+                Filing.company_id == Company.id,
+            )
+            .where(
+                ProcessingVersion.status
+                == ProcessingStatus.ACTIVE.value
+            )
+        )
+
+        if ticker:
+            statement = statement.where(
+                Company.ticker == ticker.upper()
+            )
+
+        if form_type:
+            statement = statement.where(
+                Filing.form_type == form_type
+            )
+
+        if accession_number:
+            statement = statement.where(
+                Filing.accession_number
+                == accession_number
+            )
+
+        result = await session.execute(statement)
+
+        return list(result.scalars().all())
+
 class IngestionRepository:
 
     @staticmethod
