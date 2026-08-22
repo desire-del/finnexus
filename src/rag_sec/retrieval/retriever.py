@@ -1,9 +1,13 @@
-# src/rag_sec/retrieval/retriever.py
+# src/rag_sec/retrieval.py
 
 from langchain_core.documents import Document
 from langchain_postgres import (
     PGEngine,
     PGVectorStore,
+)
+from langchain_postgres.v2.hybrid_search_config import (
+    HybridSearchConfig,
+    reciprocal_rank_fusion,
 )
 
 from rag_sec.database.manager import (
@@ -16,7 +20,6 @@ from rag_sec.logging import (
     get_logger,
 )
 
-
 log = get_logger(__name__)
 
 
@@ -25,16 +28,18 @@ class Retriever:
     def __init__(
         self,
         top_k: int = 5,
+        dense_top_k: int = 20,
+        lexical_top_k: int = 20,
     ):
         self.db = get_database_manager()
 
         self.embeddings = get_embedding_model()
 
         self.top_k = top_k
+        self.dense_top_k = dense_top_k
+        self.lexical_top_k = lexical_top_k
 
-        self.vector_store: (
-            PGVectorStore | None
-        ) = None
+        self.vector_store: PGVectorStore | None = None
 
     async def initialize(self) -> None:
 
@@ -45,46 +50,40 @@ class Retriever:
             engine=self.db.engine
         )
 
-        self.vector_store = (
-            await PGVectorStore.create(
-                engine=pg_engine,
+        self.vector_store = await PGVectorStore.create(
+            engine=pg_engine,
 
-                embedding_service=(
-                    self.embeddings
-                ),
+            embedding_service=self.embeddings,
 
-                table_name="active_chunks",
+            table_name="active_chunks",
 
-                id_column="id",
+            id_column="id",
+            content_column="text",
+            embedding_column="embedding",
 
-                content_column="text",
+            metadata_columns=[
+                "chunk_id",
+                "filing_id",
+                "processing_version_id",
+                "chunk_index",
 
-                embedding_column="embedding",
+                "section",
+                "part",
+                "item",
+                "page",
+                "source_url",
+                "token_count",
 
-                metadata_columns=[
-                    "chunk_id",
-                    "filing_id",
-                    "processing_version_id",
-                    "chunk_index",
+                "accession_number",
+                "form_type",
+                "filing_date",
 
-                    "section",
-                    "part",
-                    "item",
-                    "page",
-                    "source_url",
-                    "token_count",
+                "cik",
+                "company_name",
+                "ticker",
+            ],
 
-                    "accession_number",
-                    "form_type",
-                    "filing_date",
-
-                    "cik",
-                    "company_name",
-                    "ticker",
-                ],
-
-                metadata_json_column="metadata",
-            )
+            metadata_json_column="metadata",
         )
 
         log.info(
@@ -99,9 +98,7 @@ class Retriever:
         form_type: str | None = None,
         accession_number: str | None = None,
         top_k: int | None = None,
-    ) -> list[
-        tuple[Document, float]
-    ]:
+    ) -> list[Document]:
 
         query = query.strip()
 
@@ -115,29 +112,50 @@ class Retriever:
         filters = self._build_filters(
             ticker=ticker,
             form_type=form_type,
-            accession_number=(
-                accession_number
-            ),
+            accession_number=accession_number,
         )
 
-        results = (
+        hybrid_config = HybridSearchConfig(
+            tsv_lang="pg_catalog.english",
+
+            fusion_function=(
+                reciprocal_rank_fusion
+            ),
+
+            primary_top_k=(
+                self.dense_top_k
+            ),
+
+            secondary_top_k=(
+                self.lexical_top_k
+            ),
+
+            fusion_function_parameters={
+                "rrf_k": 60
+            },
+        )
+
+        documents = (
             await self.vector_store
-            .asimilarity_search_with_score(
+            .asimilarity_search(
                 query=query,
                 k=top_k or self.top_k,
                 filter=filters,
+                hybrid_search_config=(
+                    hybrid_config
+                ),
             )
         )
 
         log.info(
-            "retrieval_completed",
+            "hybrid_retrieval_completed",
             query=query,
-            result_count=len(results),
+            result_count=len(documents),
             ticker=ticker,
             form_type=form_type,
         )
 
-        return results
+        return documents
 
     @staticmethod
     def _build_filters(
