@@ -1,0 +1,43 @@
+name: finexus
+services:
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: finexus-postgres
+
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: finexus
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d finexus"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: finexus-phoenix
+
+    ports:
+      - "6006:6006"
+      - "4317:4317"
+
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+
+    volumes:
+      - phoenix_data:/mnt/data
+
+
+volumes:
+  pgdata:
+  phoenix_data:
