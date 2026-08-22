@@ -93,19 +93,30 @@ class LLMSettings(BaseSettings):
     )
 
 class PhoenixSettings(BaseSettings):
+    """Phoenix/OpenTelemetry exporter configuration."""
+
     model_config = SettingsConfigDict(
         env_prefix="PHOENIX_",
         env_file=".env",
         env_file_encoding="utf-8",
-        extra = "ignore"
+        extra="ignore",
     )
+
     endpoint: str = Field(
-        default="http://localhost:6060",
-        description="The endpoint for the Phoenix observability provider. Default is 'http://localhost:6060'."
+        default="http://localhost:6006/v1/traces",
+        description="Phoenix OTLP collector endpoint.",
     )
     project_name: str = Field(
         default="finexus",
-        description="The project name for the Phoenix observability provider. Default is 'finexus'."
+        description="Phoenix project name.",
+    )
+    api_key: str = Field(
+        default="",
+        description="Optional Phoenix API key.",
+    )
+    batch: bool = Field(
+        default=True,
+        description="Export spans in batches.",
     )
 
 class LangfuseSettings(BaseSettings):
@@ -129,15 +140,40 @@ class LangfuseSettings(BaseSettings):
     )
 
 class ObservabilitySettings(BaseSettings):
+    """Application tracing configuration."""
+
     model_config = SettingsConfigDict(
         env_prefix="OBSERVABILITY_",
         env_file=".env",
         env_file_encoding="utf-8",
-        extra = "ignore"
+        extra="ignore",
     )
     provider: ObservabilityProvider = Field(
         default=ObservabilityProvider.NONE,
-        description="The provider for observability. Options are 'phoenix', 'langfuse', or 'none'."
+        description="Observability provider.",
+    )
+    capture_content: bool = Field(
+        default=False,
+        description=(
+            "Capture prompt and response content in traces. "
+            "Disabled by default to protect filing data."
+        ),
+    )
+    instrument_langchain: bool = Field(
+        default=False,
+        description=(
+            "Enable low-level LangChain spans. Disabled by "
+            "default to avoid duplicate runnable spans."
+        ),
+    )
+    instrument_openai: bool = Field(
+        default=True,
+        description="Enable OpenAI request, token, and cost spans.",
+    )
+    shutdown_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        description="Maximum time used to flush traces at shutdown.",
     )
 
 
