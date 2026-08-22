@@ -1,27 +1,32 @@
-from rag_sec.config import get_settings
-from rag_sec.logging import configure_logging
-from rag_sec.logging import get_logger
-from rag_sec.observability import configure_observability
+import asyncio
 
-def main():
-    # Configure logging
-    settings = get_settings()
-    configure_logging(
-        log_level=settings.log_level,
-        json_format=settings.json_logging,
-        log_file="logs/app.log",  # You can specify a log file path here if needed
-        use_stderr=True  # Use stderr for logging output
+from rag_sec.database.manager import (
+    get_database_manager,
+)
+
+from rag_sec.ingestion.pipeline import (
+    IngestionPipeline,
+)
+
+
+async def main():
+
+    db = get_database_manager()
+
+    await db.initialize()
+
+    pipeline = IngestionPipeline()
+
+    result = await pipeline.ingest_latest(
+        "AAPL",
+        form_type="10-K",
     )
 
-    log = get_logger(__name__)
-    log.info("Application started", environment=settings.environment)
+    print("\n--- INGESTION RESULT ---")
+    print(result)
 
+    await db.close()
 
-    print(settings.database_url)
-    print(settings.observability.provider)
-    print(settings.observability.config)
-
-    configure_observability()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
