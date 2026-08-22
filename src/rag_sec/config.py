@@ -1,7 +1,7 @@
-from functools import lru_cache
 from enum import Enum
-from typing import Union
-from pydantic import Field, field_validator
+from functools import lru_cache
+
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class EmbeddingProvider(str, Enum):
     OPENAI = "openai"
     HUGGINGFACE = "huggingface"
+    OLLAMA = "ollama"
 
 class LLMProvider(str, Enum):
     OPENAI = "openai"
@@ -27,73 +28,69 @@ class ObservabilityProvider(str, Enum):
 
 # Settings class for embedding configuration
 class EmbeddingSettings(BaseSettings):
-    """EmbeddingSettings is a Pydantic model that holds configuration settings for embedding models. It includes fields for the provider, model name, dimension, and API key. The class also includes validation for the API key based on the selected provider."""
+    """Configuration dedicated to the embedding backend."""
     model_config = SettingsConfigDict(
         env_prefix="EMBEDDING_",
         env_file=".env",
         env_file_encoding="utf-8",
-        extra = "ignore"
+        extra="ignore",
     )
 
     provider: EmbeddingProvider = Field(
         default=EmbeddingProvider.OPENAI,
-        description="The provider for the embedding model. Options are 'openai' or 'huggingface'."
+        description="Embedding provider.",
     )
     model_name: str = Field(
         default="text-embedding-3-small",
-        description="The name of the embedding model to use. For OpenAI, options include 'text-embedding-3-small', 'text-embedding-3-large', etc. For HuggingFace, options include 'sentence-transformers/all-MiniLM-L6-v2', 'sentence-transformers/all-mpnet-base-v2', etc."
+        description="Embedding model name.",
     )
     dimension: int = Field(
         default=1536,
-        description="The dimension of the embedding vector. For OpenAI's 'text-embedding-3-small', the dimension is 1536. For HuggingFace's 'sentence-transformers/all-MiniLM-L6-v2', the dimension is 384."
+        gt=0,
+        description="Expected vector dimension.",
     )
 
     api_key: str = Field(
         default="",
-        description="The API key for the embedding provider. This is required for OpenAI and HuggingFace. For OpenAI, you can set the API key in the environment variable 'OPENAI_API_KEY'. For HuggingFace, you can set the API key in the environment variable 'HUGGINGFACE_API_KEY'."
+        description="Embedding provider API key.",
     )
-    @field_validator("api_key")
-    @classmethod
-    def validate_api_key(cls, value, info):
-        provider = info.data.get("provider")
-        if provider in [EmbeddingProvider.OPENAI] and not value:
-            raise ValueError(f"API key is required for provider '{provider.value}'. Please set the API key in the environment variable 'OPENAI_API_KEY'.")
-        return value
+    base_url: str | None = Field(
+        default=None,
+        description="Optional embedding API endpoint override.",
+    )
 
 # Settings class for LLM configuration
 class LLMSettings(BaseSettings):
-    """LLMSettings is a Pydantic model that holds configuration settings for LLM models. It includes fields for the provider, model name, dimension, and API key. The class also includes validation for the API key based on the selected provider."""
+    """Configuration dedicated to the chat model backend."""
     model_config = SettingsConfigDict(
         env_prefix="LLM_",
         env_file=".env",
         env_file_encoding="utf-8",
-        extra = "ignore"
+        extra="ignore",
     )
 
     provider: LLMProvider = Field(
         default=LLMProvider.OPENAI,
-        description="The provider for the LLM model. Options are 'openai', 'huggingface', or 'ollama'."
+        description="Chat model provider.",
     )
     model_name: str = Field(
-        default="gpt-4o",
-        description="The name of the LLM model to use. For OpenAI, options include 'gpt-4o', 'gpt-4o-mini', etc. For HuggingFace, options include 'bigscience/bloom', 'facebook/opt-1.3b', etc. For Ollama, options include 'ollama/llama2-7b', 'ollama/llama2-13b', etc."
+        default="gpt-4o-mini",
+        description="Chat model name.",
     )
     api_key: str = Field(
         default="",
-        description="The API key for the LLM provider. This is required for OpenAI and HuggingFace. For OpenAI, you can set the API key in the environment variable 'OPENAI_API_KEY'. For HuggingFace, you can set the API key in the environment variable 'HUGGINGFACE_API_KEY'."
+        description="Chat model provider API key.",
     )
-    base_url: str = Field(
-        default="https://localhost:11434",
-        description="The base URL for the LLM provider's API. This is optional and can be used to override the default API endpoint. Default is 'https://localhost:11434' for Ollama. For OpenAI and HuggingFace, the default endpoints are used."
+    base_url: str | None = Field(
+        default=None,
+        description="Optional chat model API endpoint override.",
     )
-
-    @field_validator("api_key")
-    @classmethod
-    def validate_api_key(cls, value, info):
-        provider = info.data.get("provider")
-        if provider in [LLMProvider.OPENAI] and not value:
-            raise ValueError(f"API key is required for provider '{provider.value}'. Please set the API key in the environment variable 'OPENAI_API_KEY'.")
-        return value
+    temperature: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=2.0,
+        description="Chat model sampling temperature.",
+    )
 
 class PhoenixSettings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -145,7 +142,7 @@ class ObservabilitySettings(BaseSettings):
 
 
     @property
-    def config(self)->Union[PhoenixSettings, LangfuseSettings, None]:
+    def config(self) -> PhoenixSettings | LangfuseSettings | None:
         match self.provider:
             case ObservabilityProvider.PHOENIX:
                 return PhoenixSettings()
@@ -206,7 +203,7 @@ class Settings(BaseSettings):
         default_factory=EdgarSettings
     )
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """Get the application settings.
 
@@ -214,4 +211,3 @@ def get_settings() -> Settings:
         Settings: The application settings.
     """
     return Settings()
-        
