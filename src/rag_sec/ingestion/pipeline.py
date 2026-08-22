@@ -447,6 +447,36 @@ class IngestionPipeline:
                 source_url=source_url,
             )
 
+            chunks = [
+                chunk.model_copy(
+                    update={
+                        "metadata": {
+                            **chunk.metadata,
+
+                            "company_name":
+                                company.name,
+
+                            "ticker":
+                                company.get_ticker(),
+
+                            "accession_number":
+                                accession_number,
+
+                            "form_type":
+                                filing.form,
+
+                            "filing_date":
+                                str(
+                                    filing.filing_date
+                                ),
+                        }
+                    }
+                )
+                for chunk in chunks
+            ]
+
+
+
             if not chunks:
                 raise ValueError(
                     "Chunking produced "

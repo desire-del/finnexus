@@ -37,23 +37,67 @@ class DatabaseManager:
         )
 
     async def initialize(self) -> None:
-        """
-        Initialize the database.
-
-        - enables the pgvector extension
-        - creates SQLAlchemy tables
-        """
-
         async with self.engine.begin() as connection:
 
-            # pgvector must exist before tables using VECTOR are created
             await connection.execute(
-                text("CREATE EXTENSION IF NOT EXISTS vector")
+                text(
+                    "CREATE EXTENSION IF NOT EXISTS vector"
+                )
             )
 
-            # Base.metadata.create_all() is synchronous,
-            # so run_sync bridges it into the async connection.
-            await connection.run_sync(Base.metadata.create_all)
+            await connection.run_sync(
+                Base.metadata.create_all
+            )
+
+            await connection.execute(
+                text(
+                    """
+                    CREATE OR REPLACE VIEW active_chunks AS
+
+                    SELECT
+                        c.id,
+                        c.chunk_id,
+                        c.filing_id,
+                        c.processing_version_id,
+                        c.chunk_index,
+
+                        c.text,
+                        c.embedding,
+
+                        c.section,
+                        c.part,
+                        c.item,
+                        c.page,
+                        c.source_url,
+                        c.token_count,
+
+                        c.metadata,
+
+                        f.accession_number,
+                        f.form_type,
+                        f.filing_date,
+
+                        co.cik,
+                        co.name AS company_name,
+                        co.ticker
+
+                    FROM chunks AS c
+
+                    JOIN processing_versions AS pv
+                        ON pv.id = c.processing_version_id
+
+                    JOIN filings AS f
+                        ON f.id = c.filing_id
+
+                    JOIN companies AS co
+                        ON co.id = f.company_id
+
+                    WHERE
+                        pv.status = 'active'
+                        AND c.embedding IS NOT NULL
+                    """
+                )
+            )
 
         log.info("database_initialized")
 
