@@ -1,6 +1,6 @@
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from functools import lru_cache
-from typing import AsyncGenerator
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import (
 from rag_sec.config import get_settings
 from rag_sec.logging import get_logger
 from rag_sec.models import Base
-
 
 log = get_logger(__name__)
 
@@ -50,6 +49,40 @@ class DatabaseManager:
             )
 
             await connection.execute(
+                text("DROP VIEW IF EXISTS active_chunks")
+            )
+
+            await connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1
+                            FROM pg_attribute AS attribute
+                            JOIN pg_class AS relation
+                                ON relation.oid = attribute.attrelid
+                            JOIN pg_namespace AS namespace
+                                ON namespace.oid = relation.relnamespace
+                            WHERE relation.relname = 'chunks'
+                                AND namespace.nspname = current_schema()
+                                AND attribute.attname = 'embedding'
+                                AND format_type(
+                                    attribute.atttypid,
+                                    attribute.atttypmod
+                                ) <> 'vector'
+                        ) THEN
+                            ALTER TABLE chunks
+                            ALTER COLUMN embedding TYPE vector
+                            USING embedding::vector;
+                        END IF;
+                    END
+                    $$
+                    """
+                )
+            )
+
+            await connection.execute(
                 text(
                     """
                     CREATE OR REPLACE VIEW active_chunks AS
@@ -79,7 +112,11 @@ class DatabaseManager:
 
                         co.cik,
                         co.name AS company_name,
-                        co.ticker
+                        co.ticker,
+
+                        pv.embedding_provider,
+                        pv.embedding_model,
+                        pv.embedding_dimension
 
                     FROM chunks AS c
 
@@ -112,7 +149,7 @@ class DatabaseManager:
 
             return True
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - health check returns a boolean.
             log.error(
                 "database_health_check_failed",
                 error=str(exc),

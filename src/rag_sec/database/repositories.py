@@ -1,32 +1,32 @@
 # src/rag_sec/database/repositories.py
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from rag_sec.models.chunk import Chunk
 from rag_sec.models.company import Company
 from rag_sec.models.filing import Filing
-from rag_sec.models.processing_version import ProcessingVersion
-from rag_sec.models.chunk import Chunk
-from rag_sec.models.ingestion_run import IngestionRun
 from rag_sec.models.ingestion_error import IngestionError as IngestionErrorModel
-
-from rag_sec.schemas.company import CompanyCreate
-from rag_sec.schemas.filing import FilingCreate
-from rag_sec.schemas.processing import ProcessingVersionCreate
+from rag_sec.models.ingestion_run import IngestionRun
+from rag_sec.models.processing_version import ProcessingVersion
 from rag_sec.schemas.chunk import EmbeddedChunk
-from rag_sec.schemas.ingestion import (
-    IngestionRunCreate,
-    IngestionError as IngestionErrorSchema,
-)
-
+from rag_sec.schemas.company import CompanyCreate
 from rag_sec.schemas.enums import (
     FilingStatus,
-    ProcessingStatus,
     IngestionStatus,
+    ProcessingStatus,
 )
+from rag_sec.schemas.filing import FilingCreate
+from rag_sec.schemas.ingestion import (
+    IngestionError as IngestionErrorSchema,
+)
+from rag_sec.schemas.ingestion import (
+    IngestionRunCreate,
+)
+from rag_sec.schemas.processing import ProcessingVersionCreate
 
 
 class CompanyRepository:
@@ -153,7 +153,7 @@ class FilingRepository:
             is_amendment=data.is_amendment,
             authority=data.authority.value,
             status=FilingStatus.DISCOVERED.value,
-            discovered_at=datetime.now(timezone.utc),
+            discovered_at=datetime.now(UTC),
         )
 
         session.add(filing)
@@ -174,7 +174,7 @@ class FilingRepository:
         filing.content_hash = content_hash
         filing.source_size_bytes = source_size_bytes
         filing.status = FilingStatus.FETCHED.value
-        filing.fetched_at = datetime.now(timezone.utc)
+        filing.fetched_at = datetime.now(UTC)
 
         await session.flush()
 
@@ -224,13 +224,23 @@ class ProcessingRepository:
     @staticmethod
     async def get_active_version(
         session: AsyncSession,
+        *,
         filing_id: UUID,
+        embedding_provider: str,
+        embedding_model: str,
+        embedding_dimension: int,
     ) -> ProcessingVersion | None:
         result = await session.execute(
             select(ProcessingVersion).where(
                 ProcessingVersion.filing_id == filing_id,
                 ProcessingVersion.status
                 == ProcessingStatus.ACTIVE.value,
+                ProcessingVersion.embedding_provider
+                == embedding_provider,
+                ProcessingVersion.embedding_model
+                == embedding_model,
+                ProcessingVersion.embedding_dimension
+                == embedding_dimension,
             )
         )
 
@@ -331,7 +341,63 @@ class ProcessingRepository:
         version: ProcessingVersion,
     ) -> ProcessingVersion:
         version.status = ProcessingStatus.FAILED.value
-        version.completed_at = datetime.now(timezone.utc)
+        version.completed_at = datetime.now(UTC)
+
+        await session.flush()
+
+        return version
+
+    @staticmethod
+    async def reset_version(
+        session: AsyncSession,
+        processing_version_id: UUID,
+        ingestion_run_id: UUID,
+    ) -> ProcessingVersion:
+        """Reset a failed or incomplete version for a new ingestion attempt.
+
+        The caller owns the surrounding transaction. Locking the version,
+        deleting its chunks, and resetting its state in the same session keeps
+        the recovery atomic: a rollback restores both the version and chunks.
+        """
+        result = await session.execute(
+            select(ProcessingVersion)
+            .where(
+                ProcessingVersion.id == processing_version_id
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        version = result.scalar_one_or_none()
+
+        if version is None:
+            raise ValueError(
+                "Processing version not found for reset: "
+                f"{processing_version_id}."
+            )
+
+        retryable_statuses = {
+            ProcessingStatus.FAILED.value,
+            ProcessingStatus.BUILDING.value,
+        }
+
+        if version.status not in retryable_statuses:
+            raise ValueError(
+                "Cannot reset processing version "
+                f"{processing_version_id} with status "
+                f"'{version.status}'."
+            )
+
+        await session.execute(
+            delete(Chunk).where(
+                Chunk.processing_version_id == version.id
+            )
+        )
+
+        version.ingestion_run_id = ingestion_run_id
+        version.status = ProcessingStatus.BUILDING.value
+        version.chunk_count = 0
+        version.activated_at = None
+        version.completed_at = None
 
         await session.flush()
 
@@ -384,13 +450,19 @@ class ProcessingRepository:
                 ProcessingVersion.id != version.id,
                 ProcessingVersion.status
                 == ProcessingStatus.ACTIVE.value,
+                ProcessingVersion.embedding_provider
+                == version.embedding_provider,
+                ProcessingVersion.embedding_model
+                == version.embedding_model,
+                ProcessingVersion.embedding_dimension
+                == version.embedding_dimension,
             )
             .values(
                 status=ProcessingStatus.SUPERSEDED.value
             )
         )
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         version.status = ProcessingStatus.ACTIVE.value
         version.chunk_count = chunk_count
@@ -409,6 +481,9 @@ class ProcessingRepository:
         ticker: str | None = None,
         form_type: str | None = None,
         accession_number: str | None = None,
+        embedding_provider: str | None = None,
+        embedding_model: str | None = None,
+        embedding_dimension: int | None = None,
     ) -> list[UUID]:
 
         statement = (
@@ -443,6 +518,24 @@ class ProcessingRepository:
                 == accession_number
             )
 
+        if embedding_provider:
+            statement = statement.where(
+                ProcessingVersion.embedding_provider
+                == embedding_provider
+            )
+
+        if embedding_model:
+            statement = statement.where(
+                ProcessingVersion.embedding_model
+                == embedding_model
+            )
+
+        if embedding_dimension is not None:
+            statement = statement.where(
+                ProcessingVersion.embedding_dimension
+                == embedding_dimension
+            )
+
         result = await session.execute(statement)
 
         return list(result.scalars().all())
@@ -472,7 +565,7 @@ class IngestionRepository:
             filings_processed=0,
             filings_skipped=0,
             filings_failed=0,
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
         )
 
         session.add(run)
@@ -568,7 +661,7 @@ class IngestionRepository:
             run.status = IngestionStatus.COMPLETED.value
 
         run.current_stage = None
-        run.completed_at = datetime.now(timezone.utc)
+        run.completed_at = datetime.now(UTC)
 
         await session.flush()
 
@@ -581,7 +674,7 @@ class IngestionRepository:
     ) -> IngestionRun:
         run.status = IngestionStatus.FAILED.value
         run.current_stage = None
-        run.completed_at = datetime.now(timezone.utc)
+        run.completed_at = datetime.now(UTC)
 
         await session.flush()
 

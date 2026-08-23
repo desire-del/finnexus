@@ -13,14 +13,16 @@ def get_embedding_model() -> Embeddings:
     settings = get_settings().embedding
     kwargs = {}
 
-    if settings.api_key:
-        kwargs["api_key"] = settings.api_key
-
-    if settings.base_url:
-        kwargs["base_url"] = settings.base_url
-
     if settings.provider.value == "openai":
+        if settings.api_key:
+            kwargs["api_key"] = settings.api_key
+
+        if settings.base_url:
+            kwargs["base_url"] = settings.base_url
+
         kwargs["dimensions"] = settings.dimension
+    elif settings.provider.value == "ollama" and settings.base_url:
+        kwargs["base_url"] = settings.base_url
 
     return init_embeddings(
         model=settings.model_name,
@@ -30,8 +32,12 @@ def get_embedding_model() -> Embeddings:
 
 
 def warmup_embedding_model(model: Embeddings) -> None:
-    """Preload local tokenizer state without calling the provider API."""
+    """Preload provider-local resources without calling a remote API."""
     settings = get_settings().embedding
+
+    if settings.provider.value == "huggingface":
+        model.embed_query("warmup")
+        return
 
     if settings.provider.value != "openai":
         return

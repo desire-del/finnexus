@@ -1,8 +1,7 @@
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from pgvector.sqlalchemy import VECTOR
-
 from sqlalchemy import (
     ForeignKeyConstraint,
     Integer,
@@ -10,10 +9,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import (
-    JSONB,
-    UUID as PGUUID,
-)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from rag_sec.models.base import (
@@ -24,9 +21,6 @@ from rag_sec.models.base import (
 
 if TYPE_CHECKING:
     from rag_sec.models.processing_version import ProcessingVersion
-
-
-EMBEDDING_DIMENSION = 1536
 
 
 class Chunk(
@@ -152,7 +146,7 @@ class Chunk(
 
     # Vector
     embedding: Mapped[list[float] | None] = mapped_column(
-        VECTOR(EMBEDDING_DIMENSION),
+        VECTOR(),
         nullable=True,
     )
 

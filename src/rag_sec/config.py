@@ -37,17 +37,35 @@ class EmbeddingSettings(BaseSettings):
     )
 
     provider: EmbeddingProvider = Field(
-        default=EmbeddingProvider.OPENAI,
+        default=EmbeddingProvider.HUGGINGFACE,
         description="Embedding provider.",
     )
-    model_name: str = Field(
+    openai_model_name: str = Field(
         default="text-embedding-3-small",
-        description="Embedding model name.",
+        description="OpenAI embedding model name.",
     )
-    dimension: int = Field(
+    openai_dimension: int = Field(
         default=1536,
         gt=0,
-        description="Expected vector dimension.",
+        description="Expected OpenAI vector dimension.",
+    )
+    huggingface_model_name: str = Field(
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        description="Hugging Face embedding model name.",
+    )
+    huggingface_dimension: int = Field(
+        default=384,
+        gt=0,
+        description="Expected Hugging Face vector dimension.",
+    )
+    ollama_model_name: str = Field(
+        default="nomic-embed-text",
+        description="Ollama embedding model name.",
+    )
+    ollama_dimension: int = Field(
+        default=768,
+        gt=0,
+        description="Expected Ollama vector dimension.",
     )
 
     api_key: str = Field(
@@ -58,6 +76,28 @@ class EmbeddingSettings(BaseSettings):
         default=None,
         description="Optional embedding API endpoint override.",
     )
+
+    @property
+    def model_name(self) -> str:
+        """Return the model selected by the active provider profile."""
+        match self.provider:
+            case EmbeddingProvider.OPENAI:
+                return self.openai_model_name
+            case EmbeddingProvider.HUGGINGFACE:
+                return self.huggingface_model_name
+            case EmbeddingProvider.OLLAMA:
+                return self.ollama_model_name
+
+    @property
+    def dimension(self) -> int:
+        """Return the dimension selected by the active provider profile."""
+        match self.provider:
+            case EmbeddingProvider.OPENAI:
+                return self.openai_dimension
+            case EmbeddingProvider.HUGGINGFACE:
+                return self.huggingface_dimension
+            case EmbeddingProvider.OLLAMA:
+                return self.ollama_dimension
 
 # Settings class for LLM configuration
 class LLMSettings(BaseSettings):

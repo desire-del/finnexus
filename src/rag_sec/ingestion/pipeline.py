@@ -936,8 +936,10 @@ class IngestionPipeline:
                     await ProcessingRepository
                     .reset_version(
                         session,
-                        existing,
-                        run_id,
+                        processing_version_id=(
+                            existing.id
+                        ),
+                        ingestion_run_id=run_id,
                     )
                 )
 

@@ -14,6 +14,7 @@ from openinference.semconv.trace import (
     OpenInferenceSpanKindValues,
 )
 
+from rag_sec.config import get_settings
 from rag_sec.database.manager import (
     get_database_manager,
 )
@@ -43,6 +44,11 @@ class Retriever:
         self.db = get_database_manager()
 
         self.embeddings = embeddings
+
+        embedding_settings = get_settings().embedding
+        self.embedding_provider = embedding_settings.provider.value
+        self.embedding_model = embedding_settings.model_name
+        self.embedding_dimension = embedding_settings.dimension
 
         self.top_k = top_k
         self.dense_top_k = dense_top_k
@@ -90,6 +96,10 @@ class Retriever:
                 "cik",
                 "company_name",
                 "ticker",
+
+                "embedding_provider",
+                "embedding_model",
+                "embedding_dimension",
             ],
 
             metadata_json_column="metadata",
@@ -167,6 +177,9 @@ class Retriever:
             ticker=ticker,
             form_type=form_type,
             accession_number=accession_number,
+            embedding_provider=self.embedding_provider,
+            embedding_model=self.embedding_model,
+            embedding_dimension=self.embedding_dimension,
         )
 
         hybrid_config = HybridSearchConfig(
@@ -230,9 +243,16 @@ class Retriever:
         ticker: str | None,
         form_type: str | None,
         accession_number: str | None,
-    ) -> dict | None:
+        embedding_provider: str,
+        embedding_model: str,
+        embedding_dimension: int,
+    ) -> dict:
 
-        filters = []
+        filters = [
+            {"embedding_provider": embedding_provider},
+            {"embedding_model": embedding_model},
+            {"embedding_dimension": embedding_dimension},
+        ]
 
         if ticker:
             filters.append(
@@ -257,9 +277,6 @@ class Retriever:
                         accession_number
                 }
             )
-
-        if not filters:
-            return None
 
         if len(filters) == 1:
             return filters[0]
