@@ -223,3 +223,6 @@ logs/
 
 # Local exploration notebooks
 notebooks/
+
+# Tests are intentionally kept out of version control for now
+tests/
