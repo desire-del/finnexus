@@ -1,9 +1,11 @@
+from time import perf_counter
+
 from langchain_core.embeddings import Embeddings
 from openinference.semconv.trace import OpenInferenceSpanKindValues
 
 from rag_sec.application.runtime import RAGRuntime
 from rag_sec.config import get_settings
-from rag_sec.generation.generator import RAGAnswer
+from rag_sec.generation.generator import QueryMetrics, RAGAnswer
 from rag_sec.observability import (
     Phase,
     set_span_attributes,
@@ -76,6 +78,7 @@ async def answer_query(
     ticker: str,
     form_type: str,
 ) -> RAGAnswer:
+    total_started_at = perf_counter()
     settings = get_settings()
 
     set_span_attributes(
@@ -97,26 +100,63 @@ async def answer_query(
 
     set_span_input(trace_input)
 
+    embedding_started_at = perf_counter()
     query_embedding = await embed_query(
         question,
         model=runtime.embedding_model,
     )
+    embedding_latency_ms = (perf_counter() - embedding_started_at) * 1000
 
+    retrieval_started_at = perf_counter()
     documents = await runtime.retriever.search(
         question,
         query_embedding=query_embedding,
         ticker=ticker,
         form_type=form_type,
     )
+    retrieval_latency_ms = (perf_counter() - retrieval_started_at) * 1000
 
+    generation_started_at = perf_counter()
     result = await runtime.generator.generate(
         question,
         documents,
+    )
+    generation_latency_ms = (perf_counter() - generation_started_at) * 1000
+    total_latency_ms = (perf_counter() - total_started_at) * 1000
+
+    generation_seconds = generation_latency_ms / 1000
+    retrieval_seconds = retrieval_latency_ms / 1000
+    metrics = QueryMetrics(
+        total_latency_ms=total_latency_ms,
+        embedding_latency_ms=embedding_latency_ms,
+        retrieval_latency_ms=retrieval_latency_ms,
+        generation_latency_ms=generation_latency_ms,
+        generation_throughput_tokens_per_second=(
+            result.usage.output_tokens / generation_seconds
+            if generation_seconds > 0
+            else 0
+        ),
+        retrieval_throughput_documents_per_second=(
+            len(documents) / retrieval_seconds
+            if retrieval_seconds > 0
+            else 0
+        ),
+        retrieved_documents=len(documents),
+        cited_sources=len(result.sources),
+    )
+    result = result.model_copy(
+        update={"metrics": metrics}
     )
 
     trace_output: dict[str, object] = {
         "retrieved_documents": len(documents),
         "cited_sources": len(result.sources),
+        "latency_ms": total_latency_ms,
+        "input_tokens": result.usage.input_tokens,
+        "output_tokens": result.usage.output_tokens,
+        "generation_tokens_per_second": (
+            metrics.generation_throughput_tokens_per_second
+        ),
     }
 
     if settings.observability.capture_content:
