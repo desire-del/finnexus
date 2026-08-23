@@ -224,5 +224,8 @@ logs/
 # Local exploration notebooks
 notebooks/
 
+# Local documentation drafts
+docs/
+
 # Tests are intentionally kept out of version control for now
 tests/
