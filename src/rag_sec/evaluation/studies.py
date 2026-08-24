@@ -92,6 +92,27 @@ class FinanceBenchStudies:
         )
         return payload
 
+    async def fts_baseline(self, *, top_k: int = 20) -> dict[str, Any]:
+        cases = self._cases
+        result = await self._evaluate("fts", cases, top_k=top_k)
+        payload = {
+            "experiment": self._metadata(
+                "financebench-postgres-fts-v1",
+                cases=len(cases),
+                top_k=top_k,
+                fts_candidate_k=get_settings().retrieval.fts_candidate_k,
+                query_parser="websearch_to_tsquery_disjunction",
+                text_search_config="pg_catalog.english",
+                excluded_cases=self._loaded.excluded_cases,
+            ),
+            "metrics": result.metrics,
+            "results": result.records,
+        }
+        write_artifact(
+            self.suite.artifact_path("retrieval_postgres_fts_v1.json"), payload
+        )
+        return payload
+
     async def ablation(self, *, lexical: RetrievalMode) -> dict[str, Any]:
         if lexical not in {"lexical", "bm25"}:
             raise ValueError("Ablation lexical mode must be 'lexical' or 'bm25'.")

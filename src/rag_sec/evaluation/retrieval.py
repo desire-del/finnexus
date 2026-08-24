@@ -68,7 +68,7 @@ class RetrievalEvaluator:
         try:
             embedding = None
             embedding_ms = 0.0
-            if mode != "bm25":
+            if mode not in {"bm25", "fts", "lexical"}:
                 started = perf_counter()
                 embedding = await embed_query(
                     case.question,

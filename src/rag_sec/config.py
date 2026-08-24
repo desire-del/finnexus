@@ -176,9 +176,7 @@ class RetrievalSettings(BaseSettings):
         extra="ignore",
     )
 
-    mode: Literal["dense", "lexical", "hybrid", "bm25", "bm25_hybrid"] = (
-        "hybrid"
-    )
+    mode: Literal["dense", "fts", "lexical", "hybrid", "bm25", "bm25_hybrid"] = "hybrid"
     top_k: int = Field(default=5, gt=0)
     dense_candidate_k: int = Field(default=20, gt=0)
     fts_candidate_k: int = Field(default=20, gt=0)

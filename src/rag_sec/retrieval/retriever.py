@@ -33,11 +33,13 @@ from rag_sec.observability import (
 )
 from rag_sec.retrieval.bm25 import reciprocal_rank_fuse_documents
 from rag_sec.retrieval.bm25_store import BM25Store
+from rag_sec.retrieval.fts_store import PostgresFTSStore
 
 log = get_logger(__name__)
 
 RetrievalMode = Literal[
     "dense",
+    "fts",
     "lexical",
     "hybrid",
     "bm25",
@@ -75,6 +77,12 @@ class Retriever:
         self.embedding_model = embedding_settings.model_name
         self.embedding_dimension = embedding_settings.dimension
         self.bm25_store = BM25Store(
+            self.db,
+            embedding_provider=self.embedding_provider,
+            embedding_model=self.embedding_model,
+            embedding_dimension=self.embedding_dimension,
+        )
+        self.fts_store = PostgresFTSStore(
             self.db,
             embedding_provider=self.embedding_provider,
             embedding_model=self.embedding_model,
@@ -149,13 +157,14 @@ class Retriever:
 
         selected_mode = mode or cast(RetrievalMode, self.settings.mode)
 
-        if selected_mode != "bm25" and not query_embedding:
+        if selected_mode not in {"bm25", "fts", "lexical"} and not query_embedding:
             raise ValueError("Query embedding cannot be empty.")
 
         result_limit = top_k or self.settings.top_k
 
         if selected_mode not in {
             "dense",
+            "fts",
             "lexical",
             "hybrid",
             "bm25",
@@ -168,9 +177,7 @@ class Retriever:
                 "rag.retrieval.query_length": len(query),
                 "rag.retrieval.top_k": result_limit,
                 "rag.retrieval.mode": selected_mode,
-                "rag.retrieval.dense_candidate_k": (
-                    self.settings.dense_candidate_k
-                ),
+                "rag.retrieval.dense_candidate_k": (self.settings.dense_candidate_k),
                 "rag.retrieval.fts_candidate_k": self.settings.fts_candidate_k,
                 "rag.retrieval.bm25_candidate_k": self.settings.bm25_candidate_k,
                 "rag.retrieval.hybrid_lexical_backend": (
@@ -200,7 +207,10 @@ class Retriever:
             }
         )
 
-        if selected_mode != "bm25" and self.vector_store is None:
+        if (
+            selected_mode not in {"bm25", "fts", "lexical"}
+            and self.vector_store is None
+        ):
             raise RuntimeError(
                 "Retriever is not ready. Run the application warmup first."
             )
@@ -214,7 +224,16 @@ class Retriever:
             embedding_dimension=self.embedding_dimension,
         )
 
-        if selected_mode in {"bm25", "bm25_hybrid"}:
+        if selected_mode in {"fts", "lexical"}:
+            documents = await self.fts_store.search(
+                query,
+                ticker=ticker,
+                form_type=form_type,
+                accession_number=accession_number,
+                top_k=max(result_limit, self.settings.fts_candidate_k),
+            )
+            documents = documents[:result_limit]
+        elif selected_mode in {"bm25", "bm25_hybrid"}:
             bm25_documents = await self.bm25_store.search(
                 query,
                 ticker=ticker,
@@ -262,9 +281,7 @@ class Retriever:
                 primary_top_k=self.settings.dense_candidate_k,
                 secondary_top_k=self.settings.fts_candidate_k,
                 fusion_function_parameters=(
-                    {"rrf_k": self.settings.rrf_k}
-                    if selected_mode == "hybrid"
-                    else {}
+                    {"rrf_k": self.settings.rrf_k} if selected_mode == "hybrid" else {}
                 ),
             )
 

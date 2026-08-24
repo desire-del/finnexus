@@ -6,7 +6,14 @@ from typing import Any
 from rag_sec.evaluation.studies import FinanceBenchStudies
 from rag_sec.observability import configure_observability, shutdown_observability
 
-EXPERIMENTS = ("baseline", "fts-ablation", "bm25-ablation", "fusion", "reranker")
+EXPERIMENTS = (
+    "baseline",
+    "fts",
+    "fts-ablation",
+    "bm25-ablation",
+    "fusion",
+    "reranker",
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,6 +30,8 @@ async def run(experiment: str) -> dict[str, Any]:
         await studies.initialize(require_retrieval=experiment != "reranker")
         if experiment == "baseline":
             return await studies.baseline()
+        if experiment == "fts":
+            return await studies.fts_baseline()
         if experiment == "fts-ablation":
             return await studies.ablation(lexical="lexical")
         if experiment == "bm25-ablation":

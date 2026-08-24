@@ -76,6 +76,18 @@ class DatabaseManager:
             await connection.execute(
                 text(
                     """
+                    CREATE INDEX IF NOT EXISTS ix_chunks_text_fts_english
+                    ON chunks
+                    USING GIN (
+                        to_tsvector('pg_catalog.english'::regconfig, text)
+                    )
+                    """
+                )
+            )
+
+            await connection.execute(
+                text(
+                    """
                     CREATE OR REPLACE VIEW active_chunks AS
 
                     SELECT
