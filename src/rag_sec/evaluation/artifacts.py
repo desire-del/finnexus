@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rag_sec.evaluation.result import EvaluationResult
 
 
 def write_artifact(path: Path, payload: dict[str, Any]) -> None:
@@ -14,3 +19,30 @@ def write_artifact(path: Path, payload: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     temporary_path.replace(path)
+
+
+def save_result(result: EvaluationResult, path: str | Path) -> Path:
+    """Explicitly persist a notebook evaluation result as JSON.
+
+    Evaluation execution never calls this helper automatically. Existing files
+    are deliberately preserved rather than overwritten.
+    """
+    artifact_path = Path(path)
+    payload = {
+        "schema_version": 1,
+        "dataset": result.dataset_metadata,
+        "settings": result.settings.model_dump(mode="json"),
+        "metrics": result.aggregate_metrics,
+        "results": [
+            {
+                "case": case_result.case.model_dump(mode="json"),
+                "run": case_result.run.model_dump(mode="json"),
+                "scores": [
+                    score.model_dump(mode="json") for score in case_result.scores
+                ],
+            }
+            for case_result in result.cases
+        ],
+    }
+    write_artifact(artifact_path, payload)
+    return artifact_path
