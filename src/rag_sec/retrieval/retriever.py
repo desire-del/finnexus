@@ -1,7 +1,7 @@
 # src/rag_sec/retrieval.py
 
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -17,7 +17,7 @@ from openinference.semconv.trace import (
     OpenInferenceSpanKindValues,
 )
 
-from rag_sec.config import get_settings
+from rag_sec.config import RetrievalSettings, get_settings
 from rag_sec.database.manager import (
     get_database_manager,
 )
@@ -64,9 +64,7 @@ class Retriever:
     def __init__(
         self,
         embeddings: Embeddings,
-        top_k: int = 5,
-        dense_top_k: int = 20,
-        lexical_top_k: int = 20,
+        settings: RetrievalSettings | None = None,
     ):
         self.db = get_database_manager()
 
@@ -82,10 +80,7 @@ class Retriever:
             embedding_model=self.embedding_model,
             embedding_dimension=self.embedding_dimension,
         )
-
-        self.top_k = top_k
-        self.dense_top_k = dense_top_k
-        self.lexical_top_k = lexical_top_k
+        self.settings = settings or get_settings().retrieval
 
         self.vector_store: PGVectorStore | None = None
 
@@ -144,7 +139,7 @@ class Retriever:
         form_type: str | None = None,
         accession_number: str | None = None,
         top_k: int | None = None,
-        mode: RetrievalMode = "hybrid",
+        mode: RetrievalMode | None = None,
     ) -> list[Document]:
 
         query = query.strip()
@@ -152,27 +147,38 @@ class Retriever:
         if not query:
             raise ValueError("Query cannot be empty.")
 
-        if mode != "bm25" and not query_embedding:
+        selected_mode = mode or cast(RetrievalMode, self.settings.mode)
+
+        if selected_mode != "bm25" and not query_embedding:
             raise ValueError("Query embedding cannot be empty.")
 
-        result_limit = top_k or self.top_k
+        result_limit = top_k or self.settings.top_k
 
-        if mode not in {
+        if selected_mode not in {
             "dense",
             "lexical",
             "hybrid",
             "bm25",
             "bm25_hybrid",
         }:
-            raise ValueError(f"Unsupported retrieval mode: {mode!r}.")
+            raise ValueError(f"Unsupported retrieval mode: {selected_mode!r}.")
 
         set_span_attributes(
             {
                 "rag.retrieval.query_length": len(query),
                 "rag.retrieval.top_k": result_limit,
-                "rag.retrieval.mode": mode,
-                "rag.retrieval.dense_top_k": self.dense_top_k,
-                "rag.retrieval.lexical_top_k": self.lexical_top_k,
+                "rag.retrieval.mode": selected_mode,
+                "rag.retrieval.dense_candidate_k": (
+                    self.settings.dense_candidate_k
+                ),
+                "rag.retrieval.fts_candidate_k": self.settings.fts_candidate_k,
+                "rag.retrieval.bm25_candidate_k": self.settings.bm25_candidate_k,
+                "rag.retrieval.hybrid_lexical_backend": (
+                    self.settings.hybrid_lexical_backend
+                ),
+                "rag.retrieval.rrf_k": self.settings.rrf_k,
+                "rag.retrieval.dense_weight": self.settings.dense_weight,
+                "rag.retrieval.lexical_weight": self.settings.lexical_weight,
                 "rag.retrieval.embedding_dimension": (
                     len(query_embedding) if query_embedding else 0
                 ),
@@ -190,11 +196,11 @@ class Retriever:
                 "form_type": form_type,
                 "accession_number": accession_number,
                 "top_k": result_limit,
-                "mode": mode,
+                "mode": selected_mode,
             }
         )
 
-        if mode != "bm25" and self.vector_store is None:
+        if selected_mode != "bm25" and self.vector_store is None:
             raise RuntimeError(
                 "Retriever is not ready. Run the application warmup first."
             )
@@ -208,16 +214,16 @@ class Retriever:
             embedding_dimension=self.embedding_dimension,
         )
 
-        if mode in {"bm25", "bm25_hybrid"}:
+        if selected_mode in {"bm25", "bm25_hybrid"}:
             bm25_documents = await self.bm25_store.search(
                 query,
                 ticker=ticker,
                 form_type=form_type,
                 accession_number=accession_number,
-                top_k=self.lexical_top_k,
+                top_k=self.settings.bm25_candidate_k,
             )
 
-            if mode == "bm25":
+            if selected_mode == "bm25":
                 documents = bm25_documents[:result_limit]
             else:
                 if query_embedding is None:  # guarded above; narrows the type.
@@ -225,7 +231,7 @@ class Retriever:
                 dense_documents = await self._search_dense(
                     query_embedding,
                     filters=filters,
-                    top_k=self.dense_top_k,
+                    top_k=self.settings.dense_candidate_k,
                 )
                 documents = reciprocal_rank_fuse_documents(
                     dense_documents,
@@ -237,18 +243,22 @@ class Retriever:
                 raise RuntimeError("Vector retrieval requires a query embedding.")
             hybrid_config = None
 
-            if mode != "dense":
+            if selected_mode != "dense":
                 fusion_function: Any = (
-                    reciprocal_rank_fusion if mode == "hybrid" else lexical_only_ranking
+                    reciprocal_rank_fusion
+                    if selected_mode == "hybrid"
+                    else lexical_only_ranking
                 )
                 hybrid_config = HybridSearchConfig(
                     tsv_lang="pg_catalog.english",
                     fts_query=query,
                     fusion_function=fusion_function,
-                    primary_top_k=self.dense_top_k,
-                    secondary_top_k=self.lexical_top_k,
+                    primary_top_k=self.settings.dense_candidate_k,
+                    secondary_top_k=self.settings.fts_candidate_k,
                     fusion_function_parameters=(
-                        {"rrf_k": 60} if mode == "hybrid" else {}
+                        {"rrf_k": self.settings.rrf_k}
+                        if selected_mode == "hybrid"
+                        else {}
                     ),
                 )
 
@@ -277,7 +287,7 @@ class Retriever:
             "retrieval_completed",
             query_length=len(query),
             result_count=len(documents),
-            mode=mode,
+            mode=selected_mode,
             ticker=ticker,
             form_type=form_type,
             accession_number=accession_number,

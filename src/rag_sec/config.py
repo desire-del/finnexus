@@ -1,5 +1,6 @@
 from enum import Enum
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -165,6 +166,29 @@ class RerankerSettings(BaseSettings):
     )
 
 
+class RetrievalSettings(BaseSettings):
+    """Configuration shared by production and evaluation retrieval calls."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="RETRIEVAL_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    mode: Literal["dense", "lexical", "hybrid", "bm25", "bm25_hybrid"] = (
+        "hybrid"
+    )
+    top_k: int = Field(default=5, gt=0)
+    dense_candidate_k: int = Field(default=20, gt=0)
+    fts_candidate_k: int = Field(default=20, gt=0)
+    bm25_candidate_k: int = Field(default=20, gt=0)
+    hybrid_lexical_backend: Literal["fts", "bm25"] = "fts"
+    rrf_k: int = Field(default=60, gt=0)
+    dense_weight: float = Field(default=1.0, gt=0)
+    lexical_weight: float = Field(default=1.0, gt=0)
+
+
 class PhoenixSettings(BaseSettings):
     """Phoenix/OpenTelemetry exporter configuration."""
 
@@ -275,6 +299,8 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
+
+    retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
 
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
 

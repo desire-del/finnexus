@@ -3,6 +3,7 @@ from functools import cached_property, lru_cache
 
 from langchain_core.embeddings import Embeddings
 
+from rag_sec.config import get_settings
 from rag_sec.database.manager import (
     DatabaseManager,
     get_database_manager,
@@ -35,9 +36,7 @@ class RAGRuntime:
     def retriever(self) -> Retriever:
         return Retriever(
             embeddings=self.embedding_model,
-            top_k=5,
-            dense_top_k=20,
-            lexical_top_k=20,
+            settings=get_settings().retrieval,
         )
 
     @cached_property
