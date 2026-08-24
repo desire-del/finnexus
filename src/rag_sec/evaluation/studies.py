@@ -75,18 +75,20 @@ class FinanceBenchStudies:
     async def baseline(self, *, top_k: int = 20) -> dict[str, Any]:
         cases = self._cases
         result = await self._evaluate("dense", cases, top_k=top_k)
+        retrieval = get_settings().retrieval
         payload = {
             "experiment": self._metadata(
-                "financebench-dense-baseline-v1",
+                "financebench-dense-refactor-v1",
                 cases=len(cases),
                 top_k=top_k,
+                dense_candidate_k=retrieval.dense_candidate_k,
                 excluded_cases=self._loaded.excluded_cases,
             ),
             "metrics": result.metrics,
             "results": result.records,
         }
         write_artifact(
-            self.suite.artifact_path("candidate_retrieval_top20_v1.json"), payload
+            self.suite.artifact_path("retrieval_dense_refactor_v1.json"), payload
         )
         return payload
 

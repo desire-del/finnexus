@@ -238,29 +238,35 @@ class Retriever:
                     bm25_documents,
                     top_k=result_limit,
                 )
+        elif selected_mode == "dense":
+            if query_embedding is None:  # guarded above; narrows the type.
+                raise RuntimeError("Dense retrieval requires a query embedding.")
+            dense_documents = await self._search_dense(
+                query_embedding,
+                filters=filters,
+                top_k=max(result_limit, self.settings.dense_candidate_k),
+            )
+            documents = dense_documents[:result_limit]
         else:
             if query_embedding is None:  # guarded above; narrows the type.
                 raise RuntimeError("Vector retrieval requires a query embedding.")
-            hybrid_config = None
-
-            if selected_mode != "dense":
-                fusion_function: Any = (
-                    reciprocal_rank_fusion
+            fusion_function: Any = (
+                reciprocal_rank_fusion
+                if selected_mode == "hybrid"
+                else lexical_only_ranking
+            )
+            hybrid_config = HybridSearchConfig(
+                tsv_lang="pg_catalog.english",
+                fts_query=query,
+                fusion_function=fusion_function,
+                primary_top_k=self.settings.dense_candidate_k,
+                secondary_top_k=self.settings.fts_candidate_k,
+                fusion_function_parameters=(
+                    {"rrf_k": self.settings.rrf_k}
                     if selected_mode == "hybrid"
-                    else lexical_only_ranking
-                )
-                hybrid_config = HybridSearchConfig(
-                    tsv_lang="pg_catalog.english",
-                    fts_query=query,
-                    fusion_function=fusion_function,
-                    primary_top_k=self.settings.dense_candidate_k,
-                    secondary_top_k=self.settings.fts_candidate_k,
-                    fusion_function_parameters=(
-                        {"rrf_k": self.settings.rrf_k}
-                        if selected_mode == "hybrid"
-                        else {}
-                    ),
-                )
+                    else {}
+                ),
+            )
 
             vector_store = self.vector_store
             if vector_store is None:
