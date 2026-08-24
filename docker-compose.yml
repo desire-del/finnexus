@@ -2,8 +2,12 @@ name: finexus
 services:
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: paradedb/paradedb:0.25.3-pg16
     container_name: finexus-postgres
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_search
 
     environment:
       POSTGRES_USER: postgres

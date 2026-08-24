@@ -113,6 +113,26 @@ class FinanceBenchStudies:
         )
         return payload
 
+    async def bm25_baseline(self, *, top_k: int = 20) -> dict[str, Any]:
+        cases = self._cases
+        result = await self._evaluate("bm25", cases, top_k=top_k)
+        payload = {
+            "experiment": self._metadata(
+                "financebench-pgsearch-bm25-v1",
+                cases=len(cases),
+                top_k=top_k,
+                bm25_candidate_k=get_settings().retrieval.bm25_candidate_k,
+                backend="pg_search",
+                excluded_cases=self._loaded.excluded_cases,
+            ),
+            "metrics": result.metrics,
+            "results": result.records,
+        }
+        write_artifact(
+            self.suite.artifact_path("retrieval_pgsearch_bm25_v1.json"), payload
+        )
+        return payload
+
     async def ablation(self, *, lexical: RetrievalMode) -> dict[str, Any]:
         if lexical not in {"lexical", "bm25"}:
             raise ValueError("Ablation lexical mode must be 'lexical' or 'bm25'.")

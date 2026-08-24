@@ -9,6 +9,7 @@ from rag_sec.observability import configure_observability, shutdown_observabilit
 EXPERIMENTS = (
     "baseline",
     "fts",
+    "bm25",
     "fts-ablation",
     "bm25-ablation",
     "fusion",
@@ -32,6 +33,8 @@ async def run(experiment: str) -> dict[str, Any]:
             return await studies.baseline()
         if experiment == "fts":
             return await studies.fts_baseline()
+        if experiment == "bm25":
+            return await studies.bm25_baseline()
         if experiment == "fts-ablation":
             return await studies.ablation(lexical="lexical")
         if experiment == "bm25-ablation":

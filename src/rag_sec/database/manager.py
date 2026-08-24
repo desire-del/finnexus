@@ -38,6 +38,9 @@ class DatabaseManager:
     async def initialize(self) -> None:
         async with self.engine.begin() as connection:
             await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            await connection.execute(
+                text("CREATE EXTENSION IF NOT EXISTS pg_search CASCADE")
+            )
 
             await connection.run_sync(Base.metadata.create_all)
 
@@ -69,6 +72,22 @@ class DatabaseManager:
                         END IF;
                     END
                     $$
+                    """
+                )
+            )
+
+            await connection.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_chunks_text_bm25
+                    ON chunks
+                    USING bm25 (
+                        id,
+                        text,
+                        filing_id,
+                        processing_version_id
+                    )
+                    WITH (key_field = 'id')
                     """
                 )
             )
