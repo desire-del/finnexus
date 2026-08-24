@@ -14,8 +14,6 @@ EXPERIMENTS = (
     "hybrid-bm25",
     "fts-ablation",
     "bm25-ablation",
-    "fusion",
-    "reranker",
 )
 
 
@@ -30,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
 async def run(experiment: str) -> dict[str, Any]:
     studies = FinanceBenchStudies()
     try:
-        await studies.initialize(require_retrieval=experiment != "reranker")
+        await studies.initialize()
         if experiment == "baseline":
             return await studies.baseline()
         if experiment == "fts":
@@ -45,9 +43,7 @@ async def run(experiment: str) -> dict[str, Any]:
             return await studies.ablation(lexical="lexical")
         if experiment == "bm25-ablation":
             return await studies.ablation(lexical="bm25")
-        if experiment == "fusion":
-            return await studies.fusion()
-        return await studies.reranker()
+        raise ValueError(f"Unsupported experiment: {experiment!r}.")
     finally:
         await studies.close()
 

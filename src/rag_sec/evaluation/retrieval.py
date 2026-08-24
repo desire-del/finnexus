@@ -7,7 +7,6 @@ from rag_sec.evaluation.evaluators.retrieval import evaluate_retrieval
 from rag_sec.evaluation.models import (
     EvaluationCase,
     EvaluationRun,
-    RetrievedEvidence,
 )
 from rag_sec.evaluation.runner import run_dataset
 from rag_sec.retrieval.retriever import RetrievalMode
@@ -79,58 +78,6 @@ def aggregate_runs(
         for name, items in values.items()
     }
     return metrics, records
-
-
-def evidence_identity(evidence: RetrievedEvidence) -> str:
-    return evidence.chunk_id or evidence.text
-
-
-def deduplicated_union(
-    *rankings: list[RetrievedEvidence],
-) -> list[RetrievedEvidence]:
-    candidates: list[RetrievedEvidence] = []
-    seen: set[str] = set()
-    for ranking in rankings:
-        for evidence in ranking:
-            identity = evidence_identity(evidence)
-            if identity not in seen:
-                seen.add(identity)
-                candidates.append(evidence)
-    return candidates
-
-
-def weighted_rrf(
-    dense_run: EvaluationRun,
-    lexical_run: EvaluationRun,
-    *,
-    dense_depth: int,
-    lexical_depth: int,
-    dense_weight: float,
-    lexical_weight: float,
-    rrf_k: int,
-    top_k: int,
-) -> EvaluationRun:
-    scores: dict[str, float] = {}
-    evidence_by_id: dict[str, RetrievedEvidence] = {}
-    for evidence_list, weight in (
-        (dense_run.retrieved_evidence[:dense_depth], dense_weight),
-        (lexical_run.retrieved_evidence[:lexical_depth], lexical_weight),
-    ):
-        for rank, evidence in enumerate(evidence_list, start=1):
-            identity = evidence_identity(evidence)
-            evidence_by_id.setdefault(identity, evidence)
-            scores[identity] = scores.get(identity, 0) + weight / (rrf_k + rank)
-
-    identities = sorted(scores, key=lambda identity: scores[identity], reverse=True)[
-        :top_k
-    ]
-    return EvaluationRun(
-        case_id=dense_run.case_id,
-        retrieved_evidence=[
-            evidence_by_id[identity].model_copy(update={"rank": rank})
-            for rank, identity in enumerate(identities, start=1)
-        ],
-    )
 
 
 def contribution_diagnostics(

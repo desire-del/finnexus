@@ -140,32 +140,6 @@ class LLMSettings(BaseSettings):
     )
 
 
-class RerankerSettings(BaseSettings):
-    """Configuration for local cross-encoder reranking experiments."""
-
-    model_config = SettingsConfigDict(
-        env_prefix="RERANKER_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    model_name: str = Field(
-        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
-        description="Sentence Transformers cross-encoder model.",
-    )
-    batch_size: int = Field(
-        default=16,
-        gt=0,
-        description="Number of query-document pairs scored per batch.",
-    )
-    max_length: int = Field(
-        default=512,
-        gt=0,
-        description="Maximum cross-encoder input length.",
-    )
-
-
 class RetrievalSettings(BaseSettings):
     """Configuration shared by production and evaluation retrieval calls."""
 
@@ -295,8 +269,6 @@ class Settings(BaseSettings):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
 
     llm: LLMSettings = Field(default_factory=LLMSettings)
-
-    reranker: RerankerSettings = Field(default_factory=RerankerSettings)
 
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
 
