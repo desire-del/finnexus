@@ -5,6 +5,8 @@ from typing import Any
 
 def write_artifact(path: Path, payload: dict[str, Any]) -> None:
     """Atomically persist an evaluation artifact."""
+    if path.exists():
+        raise FileExistsError(f"Refusing to overwrite evaluation artifact: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = path.with_suffix(f"{path.suffix}.tmp")
     temporary_path.write_text(

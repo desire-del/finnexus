@@ -47,7 +47,7 @@ class FinanceBenchStudies:
         retrieval = get_settings().retrieval
         payload = {
             "experiment": self._metadata(
-                "financebench-dense-refactor-v1",
+                "financebench-dense-pipeline-v2",
                 cases=len(cases),
                 top_k=top_k,
                 dense_candidate_k=retrieval.dense_candidate_k,
@@ -57,7 +57,7 @@ class FinanceBenchStudies:
             "results": result.records,
         }
         write_artifact(
-            self.suite.artifact_path("retrieval_dense_refactor_v1.json"), payload
+            self.suite.artifact_path("retrieval_dense_pipeline_v2.json"), payload
         )
         return payload
 
@@ -66,7 +66,7 @@ class FinanceBenchStudies:
         result = await self._evaluate("fts", cases, top_k=top_k)
         payload = {
             "experiment": self._metadata(
-                "financebench-postgres-fts-v1",
+                "financebench-postgres-fts-pipeline-v2",
                 cases=len(cases),
                 top_k=top_k,
                 fts_candidate_k=get_settings().retrieval.fts_candidate_k,
@@ -78,7 +78,8 @@ class FinanceBenchStudies:
             "results": result.records,
         }
         write_artifact(
-            self.suite.artifact_path("retrieval_postgres_fts_v1.json"), payload
+            self.suite.artifact_path("retrieval_postgres_fts_pipeline_v2.json"),
+            payload,
         )
         return payload
 
@@ -87,7 +88,7 @@ class FinanceBenchStudies:
         result = await self._evaluate("bm25", cases, top_k=top_k)
         payload = {
             "experiment": self._metadata(
-                "financebench-pgsearch-bm25-v1",
+                "financebench-pgsearch-bm25-pipeline-v2",
                 cases=len(cases),
                 top_k=top_k,
                 bm25_candidate_k=get_settings().retrieval.bm25_candidate_k,
@@ -98,7 +99,8 @@ class FinanceBenchStudies:
             "results": result.records,
         }
         write_artifact(
-            self.suite.artifact_path("retrieval_pgsearch_bm25_v1.json"), payload
+            self.suite.artifact_path("retrieval_pgsearch_bm25_pipeline_v2.json"),
+            payload,
         )
         return payload
 
@@ -114,7 +116,7 @@ class FinanceBenchStudies:
         retrieval = get_settings().retrieval
         payload = {
             "experiment": self._metadata(
-                f"financebench-hybrid-{lexical_backend}-v1",
+                f"financebench-hybrid-{lexical_backend}-pipeline-v2",
                 cases=len(cases),
                 top_k=top_k,
                 lexical_backend=lexical_backend,
@@ -133,7 +135,9 @@ class FinanceBenchStudies:
             "results": result.records,
         }
         write_artifact(
-            self.suite.artifact_path(f"retrieval_hybrid_{lexical_backend}_v1.json"),
+            self.suite.artifact_path(
+                f"retrieval_hybrid_{lexical_backend}_pipeline_v2.json"
+            ),
             payload,
         )
         return payload

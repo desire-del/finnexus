@@ -52,7 +52,6 @@ def aggregate_runs(
 ) -> tuple[dict[str, float], list[dict]]:
     values: dict[str, list[float]] = defaultdict(list)
     records: list[dict] = []
-    max_k = max(ks)
     for case, run in zip(cases, runs, strict=True):
         scores = evaluate_retrieval(case, run, ks=ks)
         score_values = {score.metric: score.score for score in scores}
@@ -74,7 +73,11 @@ def aggregate_runs(
             }
         )
     metrics = {
-        (f"mrr@{max_k}" if name == f"reciprocal_rank@{max_k}" else name): mean(items)
+        (
+            name.replace("reciprocal_rank@", "mrr@")
+            if name.startswith("reciprocal_rank@")
+            else name
+        ): mean(items)
         for name, items in values.items()
     }
     return metrics, records

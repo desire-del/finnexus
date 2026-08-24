@@ -53,13 +53,14 @@ def hit_at_k(
 def reciprocal_rank(
     case: EvaluationCase,
     run: EvaluationRun,
+    k: int,
     *,
     config: EvidenceMatchConfig,
 ) -> float:
     evidence = sorted(
         run.retrieved_evidence,
         key=lambda evidence: evidence.rank,
-    )
+    )[:k]
 
     for item in evidence:
         if is_relevant(
@@ -170,18 +171,18 @@ def evaluate_retrieval(
                 evaluator_type="deterministic",
             )
         )
-
-    scores.append(
-        EvaluationScore(
-            evaluator="retrieval",
-            metric=f"reciprocal_rank@{max(ks)}",
-            score=reciprocal_rank(
-                case,
-                run,
-                config=config,
-            ),
-            evaluator_type="deterministic",
+        scores.append(
+            EvaluationScore(
+                evaluator="retrieval",
+                metric=f"reciprocal_rank@{k}",
+                score=reciprocal_rank(
+                    case,
+                    run,
+                    k,
+                    config=config,
+                ),
+                evaluator_type="deterministic",
+            )
         )
-    )
 
     return scores
