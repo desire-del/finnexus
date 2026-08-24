@@ -197,12 +197,15 @@ PHOENIX_PROJECT_NAME=finexus
 OBSERVABILITY_CAPTURE_CONTENT=false
 ```
 
-`OBSERVABILITY_CAPTURE_CONTENT=false` redacts query and response content while retaining operational metadata. Set `OBSERVABILITY_PROVIDER=none` to disable tracing. Langfuse variables are reserved in the settings but Langfuse is **not implemented** as an active observability backend.
+`OBSERVABILITY_CAPTURE_CONTENT=false` redacts query and response content while retaining operational metadata. Set `OBSERVABILITY_PROVIDER=none` to disable tracing.
 
 ## Repository layout
 
 ```text
 .
+├── scripts/
+│   ├── prepare_financebench_corpus.py  # Resolve and ingest evaluation corpus
+│   └── evaluate_financebench.py        # Run the FinanceBench baseline
 ├── src/rag_sec/
 │   ├── application/     # Runtime and query/filing workflows
 │   ├── cli/             # Ingestion command

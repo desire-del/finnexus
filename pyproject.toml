@@ -39,6 +39,7 @@ dependencies = [
     "sentence-transformers>=6.0.0",
     "streamlit>=1.41.0",
     "torchvision>=0.28.0",
+    "datasets>=5.0.1",
 ]
 
 [dependency-groups]
@@ -54,7 +55,6 @@ dev = [
 
 
 [project.scripts]
-rag-sec = "rag_sec:main"
 rag-sec-ingest = "rag_sec.cli.ingest:main"
 
 [build-system]
