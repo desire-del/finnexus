@@ -1,5 +1,8 @@
+from typing import Any
+
 from langchain_core.documents import Document
 from sqlalchemy import func, literal_column, select
+from sqlalchemy.sql.elements import ColumnElement
 
 from rag_sec.database.manager import DatabaseManager
 from rag_sec.models.chunk import Chunk
@@ -8,7 +11,9 @@ from rag_sec.models.filing import Filing
 from rag_sec.models.processing_version import ProcessingVersion
 from rag_sec.schemas.enums import ProcessingStatus
 
-ENGLISH_REGCONFIG = literal_column("'pg_catalog.english'::regconfig")
+ENGLISH_REGCONFIG: ColumnElement[Any] = literal_column(
+    "'pg_catalog.english'::regconfig"
+)
 
 
 def disjunctive_websearch_query(query: str) -> str:

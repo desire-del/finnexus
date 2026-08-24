@@ -52,8 +52,7 @@ async def run_case(
                 ],
                 metrics=EvaluationRunMetrics(
                     total_latency_ms=(
-                        retrieval.embedding_latency_ms
-                        + retrieval.retrieval_latency_ms
+                        retrieval.embedding_latency_ms + retrieval.retrieval_latency_ms
                     ),
                     embedding_latency_ms=retrieval.embedding_latency_ms,
                     retrieval_latency_ms=retrieval.retrieval_latency_ms,

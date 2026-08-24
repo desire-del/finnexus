@@ -3,25 +3,45 @@ import asyncio
 from collections.abc import Sequence
 from typing import Any
 
-from rag_sec.evaluation.studies import FinanceBenchStudies
+from rag_sec.evaluation.studies import FinanceBenchStudies, experiment
 from rag_sec.observability import configure_observability, shutdown_observability
 
-EXPERIMENTS = (
-    "baseline",
-    "fts",
-    "bm25",
-    "hybrid-fts",
-    "hybrid-bm25",
-    "fts-ablation",
-    "bm25-ablation",
-)
+EXPERIMENTS = {
+    "baseline": experiment(
+        name="financebench-dense-configured-v1",
+        artifact_name="retrieval_dense_configured_v1.json",
+        mode="dense",
+    ),
+    "fts": experiment(
+        name="financebench-postgres-fts-configured-v1",
+        artifact_name="retrieval_postgres_fts_configured_v1.json",
+        mode="fts",
+    ),
+    "bm25": experiment(
+        name="financebench-pgsearch-bm25-configured-v1",
+        artifact_name="retrieval_pgsearch_bm25_configured_v1.json",
+        mode="bm25",
+    ),
+    "hybrid-fts": experiment(
+        name="financebench-hybrid-fts-configured-v1",
+        artifact_name="retrieval_hybrid_fts_configured_v1.json",
+        mode="hybrid",
+        lexical_backend="fts",
+    ),
+    "hybrid-bm25": experiment(
+        name="financebench-hybrid-bm25-configured-v1",
+        artifact_name="retrieval_hybrid_bm25_configured_v1.json",
+        mode="hybrid",
+        lexical_backend="bm25",
+    ),
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run reproducible FinanceBench retrieval studies."
     )
-    parser.add_argument("experiment", choices=EXPERIMENTS)
+    parser.add_argument("experiment", choices=tuple(EXPERIMENTS))
     return parser
 
 
@@ -29,21 +49,7 @@ async def run(experiment: str) -> dict[str, Any]:
     studies = FinanceBenchStudies()
     try:
         await studies.initialize()
-        if experiment == "baseline":
-            return await studies.baseline()
-        if experiment == "fts":
-            return await studies.fts_baseline()
-        if experiment == "bm25":
-            return await studies.bm25_baseline()
-        if experiment == "hybrid-fts":
-            return await studies.hybrid_baseline(lexical_backend="fts")
-        if experiment == "hybrid-bm25":
-            return await studies.hybrid_baseline(lexical_backend="bm25")
-        if experiment == "fts-ablation":
-            return await studies.ablation(lexical="lexical")
-        if experiment == "bm25-ablation":
-            return await studies.ablation(lexical="bm25")
-        raise ValueError(f"Unsupported experiment: {experiment!r}.")
+        return await studies.run(EXPERIMENTS[experiment])
     finally:
         await studies.close()
 

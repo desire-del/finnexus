@@ -34,16 +34,12 @@ log = get_logger(__name__)
 RetrievalMode = Literal[
     "dense",
     "fts",
-    "lexical",
     "hybrid",
     "bm25",
-    "bm25_hybrid",
 ]
 
-LEXICAL_ONLY_MODES = frozenset({"fts", "lexical", "bm25"})
-SUPPORTED_MODES = frozenset(
-    {"dense", "fts", "lexical", "hybrid", "bm25", "bm25_hybrid"}
-)
+LEXICAL_ONLY_MODES = frozenset({"fts", "bm25"})
+SUPPORTED_MODES = frozenset({"dense", "fts", "hybrid", "bm25"})
 
 
 class Retriever:
@@ -151,11 +147,7 @@ class Retriever:
             raise ValueError("Query cannot be empty.")
 
         selected_mode = self.resolve_mode(mode)
-        hybrid_backend: Literal["fts", "bm25"] = (
-            "bm25"
-            if selected_mode == "bm25_hybrid"
-            else self.settings.hybrid_lexical_backend
-        )
+        hybrid_backend = self.settings.hybrid_lexical_backend
 
         if self.requires_query_embedding(selected_mode) and not query_embedding:
             raise ValueError("Query embedding cannot be empty.")
@@ -195,10 +187,7 @@ class Retriever:
             }
         )
 
-        if (
-            self.requires_query_embedding(selected_mode)
-            and self.vector_store is None
-        ):
+        if self.requires_query_embedding(selected_mode) and self.vector_store is None:
             raise RuntimeError(
                 "Retriever is not ready. Run the application warmup first."
             )
@@ -212,7 +201,7 @@ class Retriever:
             embedding_dimension=self.embedding_dimension,
         )
 
-        if selected_mode in {"fts", "lexical"}:
+        if selected_mode == "fts":
             documents = await self._search_lexical(
                 query,
                 backend="fts",

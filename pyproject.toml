@@ -52,6 +52,10 @@ dev = [
     "ruff>=0.15.22",
 ]
 
+[[tool.mypy.overrides]]
+module = ["pgvector.*"]
+ignore_missing_imports = true
+
 
 
 [project.scripts]
