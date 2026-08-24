@@ -15,12 +15,64 @@ from rag_sec.observability import (
     set_span_output,
     track,
 )
+from rag_sec.retrieval.retriever import RetrievalMode
+
+
+@dataclass(frozen=True)
+class RetrievalExecution:
+    documents: list[Document]
+    mode: RetrievalMode
+    embedding_latency_ms: float
+    retrieval_latency_ms: float
 
 
 @dataclass
 class QueryExecution:
     answer: RAGAnswer
     documents: list[Document]
+
+
+async def retrieve_query(
+    runtime: RAGRuntime,
+    question: str,
+    *,
+    ticker: str | None = None,
+    form_type: str | None = None,
+    accession_number: str | None = None,
+    top_k: int | None = None,
+    mode: RetrievalMode | None = None,
+) -> RetrievalExecution:
+    """Run the configured production Retriever without generation."""
+    selected_mode = runtime.retriever.resolve_mode(mode)
+    query_embedding: list[float] | None = None
+    embedding_latency_ms = 0.0
+
+    if runtime.retriever.requires_query_embedding(selected_mode):
+        embedding_started_at = perf_counter()
+        query_embedding = await embed_query(
+            question,
+            model=runtime.embedding_model,
+        )
+        embedding_latency_ms = (perf_counter() - embedding_started_at) * 1000
+
+    retrieval_started_at = perf_counter()
+    documents = await runtime.retriever.search(
+        question,
+        query_embedding=query_embedding,
+        ticker=ticker,
+        form_type=form_type,
+        accession_number=accession_number,
+        top_k=top_k,
+        mode=selected_mode,
+    )
+    retrieval_latency_ms = (perf_counter() - retrieval_started_at) * 1000
+
+    return RetrievalExecution(
+        documents=documents,
+        mode=selected_mode,
+        embedding_latency_ms=embedding_latency_ms,
+        retrieval_latency_ms=retrieval_latency_ms,
+    )
 
 
 @track(
@@ -127,28 +179,17 @@ async def execute_query(
 
     set_span_input(trace_input)
 
-    # Query embedding
-
-    embedding_started_at = perf_counter()
-
-    query_embedding = await embed_query(
+    retrieval = await retrieve_query(
+        runtime,
         question,
-        model=runtime.embedding_model,
-    )
-
-    embedding_latency_ms = (perf_counter() - embedding_started_at) * 1000
-
-    # Retrieval
-    retrieval_started_at = perf_counter()
-
-    documents = await runtime.retriever.search(
-        question,
-        query_embedding=query_embedding,
         ticker=ticker,
         form_type=form_type,
     )
+    documents = retrieval.documents
+    embedding_latency_ms = retrieval.embedding_latency_ms
+    retrieval_latency_ms = retrieval.retrieval_latency_ms
 
-    retrieval_latency_ms = (perf_counter() - retrieval_started_at) * 1000
+    set_span_attributes({"rag.retrieval.mode": retrieval.mode})
 
     # Generation
     generation_started_at = perf_counter()

@@ -40,6 +40,11 @@ RetrievalMode = Literal[
     "bm25_hybrid",
 ]
 
+LEXICAL_ONLY_MODES = frozenset({"fts", "lexical", "bm25"})
+SUPPORTED_MODES = frozenset(
+    {"dense", "fts", "lexical", "hybrid", "bm25", "bm25_hybrid"}
+)
+
 
 class Retriever:
     def __init__(
@@ -70,6 +75,17 @@ class Retriever:
         self.settings = settings or get_settings().retrieval
 
         self.vector_store: PGVectorStore | None = None
+
+    def resolve_mode(self, mode: RetrievalMode | None = None) -> RetrievalMode:
+        """Return and validate the explicitly requested or configured mode."""
+        selected_mode = mode or cast(RetrievalMode, self.settings.mode)
+        if selected_mode not in SUPPORTED_MODES:
+            raise ValueError(f"Unsupported retrieval mode: {selected_mode!r}.")
+        return selected_mode
+
+    def requires_query_embedding(self, mode: RetrievalMode | None = None) -> bool:
+        """Return whether the selected retrieval mode has a dense branch."""
+        return self.resolve_mode(mode) not in LEXICAL_ONLY_MODES
 
     async def initialize(self) -> None:
 
@@ -134,27 +150,17 @@ class Retriever:
         if not query:
             raise ValueError("Query cannot be empty.")
 
-        selected_mode = mode or cast(RetrievalMode, self.settings.mode)
+        selected_mode = self.resolve_mode(mode)
         hybrid_backend: Literal["fts", "bm25"] = (
             "bm25"
             if selected_mode == "bm25_hybrid"
             else self.settings.hybrid_lexical_backend
         )
 
-        if selected_mode not in {"bm25", "fts", "lexical"} and not query_embedding:
+        if self.requires_query_embedding(selected_mode) and not query_embedding:
             raise ValueError("Query embedding cannot be empty.")
 
         result_limit = top_k or self.settings.top_k
-
-        if selected_mode not in {
-            "dense",
-            "fts",
-            "lexical",
-            "hybrid",
-            "bm25",
-            "bm25_hybrid",
-        }:
-            raise ValueError(f"Unsupported retrieval mode: {selected_mode!r}.")
 
         set_span_attributes(
             {
@@ -190,7 +196,7 @@ class Retriever:
         )
 
         if (
-            selected_mode not in {"bm25", "fts", "lexical"}
+            self.requires_query_embedding(selected_mode)
             and self.vector_store is None
         ):
             raise RuntimeError(
