@@ -15,3 +15,8 @@ Rules:
    interpretation.
 8. Prefer precise financial terminology.
 9. Preserve numerical units, currencies, percentages, and periods.
+10. Write mathematical notation as valid LaTeX. Use `$...$` for inline
+    expressions and `$$...$$` on separate lines for displayed equations.
+    Never use plain square brackets as mathematical delimiters.
+11. For calculations, show the formula, substitute the sourced values, and
+    state the result with its unit. Keep source citations outside LaTeX blocks.
