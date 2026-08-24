@@ -10,6 +10,8 @@ EXPERIMENTS = (
     "baseline",
     "fts",
     "bm25",
+    "hybrid-fts",
+    "hybrid-bm25",
     "fts-ablation",
     "bm25-ablation",
     "fusion",
@@ -35,6 +37,10 @@ async def run(experiment: str) -> dict[str, Any]:
             return await studies.fts_baseline()
         if experiment == "bm25":
             return await studies.bm25_baseline()
+        if experiment == "hybrid-fts":
+            return await studies.hybrid_baseline(lexical_backend="fts")
+        if experiment == "hybrid-bm25":
+            return await studies.hybrid_baseline(lexical_backend="bm25")
         if experiment == "fts-ablation":
             return await studies.ablation(lexical="lexical")
         if experiment == "bm25-ablation":

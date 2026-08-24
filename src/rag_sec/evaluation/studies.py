@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from statistics import mean
 from time import perf_counter
-from typing import Any
+from typing import Any, Literal
 
 from rag_sec.application.runtime import RAGRuntime, get_runtime
 from rag_sec.config import get_settings
@@ -130,6 +130,42 @@ class FinanceBenchStudies:
         }
         write_artifact(
             self.suite.artifact_path("retrieval_pgsearch_bm25_v1.json"), payload
+        )
+        return payload
+
+    async def hybrid_baseline(
+        self,
+        *,
+        lexical_backend: Literal["fts", "bm25"],
+        top_k: int = 20,
+    ) -> dict[str, Any]:
+        cases = self._cases
+        mode: RetrievalMode = "hybrid" if lexical_backend == "fts" else "bm25_hybrid"
+        result = await self._evaluate(mode, cases, top_k=top_k)
+        retrieval = get_settings().retrieval
+        payload = {
+            "experiment": self._metadata(
+                f"financebench-hybrid-{lexical_backend}-v1",
+                cases=len(cases),
+                top_k=top_k,
+                lexical_backend=lexical_backend,
+                dense_candidate_k=retrieval.dense_candidate_k,
+                lexical_candidate_k=(
+                    retrieval.fts_candidate_k
+                    if lexical_backend == "fts"
+                    else retrieval.bm25_candidate_k
+                ),
+                rrf_k=retrieval.rrf_k,
+                dense_weight=retrieval.dense_weight,
+                lexical_weight=retrieval.lexical_weight,
+                excluded_cases=self._loaded.excluded_cases,
+            ),
+            "metrics": result.metrics,
+            "results": result.records,
+        }
+        write_artifact(
+            self.suite.artifact_path(f"retrieval_hybrid_{lexical_backend}_v1.json"),
+            payload,
         )
         return payload
 

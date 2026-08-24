@@ -1,17 +1,11 @@
-# src/rag_sec/retrieval.py
-
-from collections.abc import Sequence
-from typing import Any, Literal, cast
+import asyncio
+from typing import Literal, cast
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_postgres import (
     PGEngine,
     PGVectorStore,
-)
-from langchain_postgres.v2.hybrid_search_config import (
-    HybridSearchConfig,
-    reciprocal_rank_fusion,
 )
 from openinference.semconv.trace import (
     OpenInferenceSpanKindValues,
@@ -31,9 +25,9 @@ from rag_sec.observability import (
     set_span_output,
     track,
 )
-from rag_sec.retrieval.bm25 import reciprocal_rank_fuse_documents
 from rag_sec.retrieval.bm25_store import BM25Store
 from rag_sec.retrieval.fts_store import PostgresFTSStore
+from rag_sec.retrieval.fusion import weighted_reciprocal_rank_fusion
 
 log = get_logger(__name__)
 
@@ -45,21 +39,6 @@ RetrievalMode = Literal[
     "bm25",
     "bm25_hybrid",
 ]
-
-
-def lexical_only_ranking(
-    primary_search_results: Sequence[Any],
-    secondary_search_results: Sequence[Any],
-    fetch_top_k: int = 4,
-    **_: Any,
-) -> Sequence[Any]:
-    """Return PostgreSQL full-text results without dense contributions."""
-    del primary_search_results
-    return sorted(
-        secondary_search_results,
-        key=lambda result: result["distance"],
-        reverse=True,
-    )[:fetch_top_k]
 
 
 class Retriever:
@@ -156,6 +135,11 @@ class Retriever:
             raise ValueError("Query cannot be empty.")
 
         selected_mode = mode or cast(RetrievalMode, self.settings.mode)
+        hybrid_backend: Literal["fts", "bm25"] = (
+            "bm25"
+            if selected_mode == "bm25_hybrid"
+            else self.settings.hybrid_lexical_backend
+        )
 
         if selected_mode not in {"bm25", "fts", "lexical"} and not query_embedding:
             raise ValueError("Query embedding cannot be empty.")
@@ -180,9 +164,7 @@ class Retriever:
                 "rag.retrieval.dense_candidate_k": (self.settings.dense_candidate_k),
                 "rag.retrieval.fts_candidate_k": self.settings.fts_candidate_k,
                 "rag.retrieval.bm25_candidate_k": self.settings.bm25_candidate_k,
-                "rag.retrieval.hybrid_lexical_backend": (
-                    self.settings.hybrid_lexical_backend
-                ),
+                "rag.retrieval.hybrid_lexical_backend": (hybrid_backend),
                 "rag.retrieval.rrf_k": self.settings.rrf_k,
                 "rag.retrieval.dense_weight": self.settings.dense_weight,
                 "rag.retrieval.lexical_weight": self.settings.lexical_weight,
@@ -225,38 +207,26 @@ class Retriever:
         )
 
         if selected_mode in {"fts", "lexical"}:
-            documents = await self.fts_store.search(
+            documents = await self._search_lexical(
                 query,
+                backend="fts",
                 ticker=ticker,
                 form_type=form_type,
                 accession_number=accession_number,
                 top_k=max(result_limit, self.settings.fts_candidate_k),
             )
             documents = documents[:result_limit]
-        elif selected_mode in {"bm25", "bm25_hybrid"}:
-            bm25_documents = await self.bm25_store.search(
+        elif selected_mode == "bm25":
+            documents = await self._search_lexical(
                 query,
+                backend="bm25",
                 ticker=ticker,
                 form_type=form_type,
                 accession_number=accession_number,
                 top_k=self.settings.bm25_candidate_k,
             )
 
-            if selected_mode == "bm25":
-                documents = bm25_documents[:result_limit]
-            else:
-                if query_embedding is None:  # guarded above; narrows the type.
-                    raise RuntimeError("Dense retrieval requires a query embedding.")
-                dense_documents = await self._search_dense(
-                    query_embedding,
-                    filters=filters,
-                    top_k=self.settings.dense_candidate_k,
-                )
-                documents = reciprocal_rank_fuse_documents(
-                    dense_documents,
-                    bm25_documents,
-                    top_k=result_limit,
-                )
+            documents = documents[:result_limit]
         elif selected_mode == "dense":
             if query_embedding is None:  # guarded above; narrows the type.
                 raise RuntimeError("Dense retrieval requires a query embedding.")
@@ -268,31 +238,33 @@ class Retriever:
             documents = dense_documents[:result_limit]
         else:
             if query_embedding is None:  # guarded above; narrows the type.
-                raise RuntimeError("Vector retrieval requires a query embedding.")
-            fusion_function: Any = (
-                reciprocal_rank_fusion
-                if selected_mode == "hybrid"
-                else lexical_only_ranking
-            )
-            hybrid_config = HybridSearchConfig(
-                tsv_lang="pg_catalog.english",
-                fts_query=query,
-                fusion_function=fusion_function,
-                primary_top_k=self.settings.dense_candidate_k,
-                secondary_top_k=self.settings.fts_candidate_k,
-                fusion_function_parameters=(
-                    {"rrf_k": self.settings.rrf_k} if selected_mode == "hybrid" else {}
+                raise RuntimeError("Hybrid retrieval requires a query embedding.")
+            dense_documents, lexical_documents = await asyncio.gather(
+                self._search_dense(
+                    query_embedding,
+                    filters=filters,
+                    top_k=self.settings.dense_candidate_k,
+                ),
+                self._search_lexical(
+                    query,
+                    backend=hybrid_backend,
+                    ticker=ticker,
+                    form_type=form_type,
+                    accession_number=accession_number,
+                    top_k=(
+                        self.settings.fts_candidate_k
+                        if hybrid_backend == "fts"
+                        else self.settings.bm25_candidate_k
+                    ),
                 ),
             )
-
-            vector_store = self.vector_store
-            if vector_store is None:
-                raise RuntimeError("Retriever is not initialized.")
-            documents = await vector_store.asimilarity_search_by_vector(
-                embedding=query_embedding,
-                k=result_limit,
-                filter=filters,
-                hybrid_search_config=hybrid_config,
+            documents = weighted_reciprocal_rank_fusion(
+                dense_documents,
+                lexical_documents,
+                dense_weight=self.settings.dense_weight,
+                lexical_weight=self.settings.lexical_weight,
+                rrf_k=self.settings.rrf_k,
+                top_k=result_limit,
             )
 
         set_span_attributes(
@@ -331,6 +303,25 @@ class Retriever:
             embedding=query_embedding,
             k=top_k,
             filter=filters,
+        )
+
+    async def _search_lexical(
+        self,
+        query: str,
+        *,
+        backend: Literal["fts", "bm25"],
+        ticker: str | None,
+        form_type: str | None,
+        accession_number: str | None,
+        top_k: int,
+    ) -> list[Document]:
+        store = self.fts_store if backend == "fts" else self.bm25_store
+        return await store.search(
+            query,
+            ticker=ticker,
+            form_type=form_type,
+            accession_number=accession_number,
+            top_k=top_k,
         )
 
     @staticmethod
