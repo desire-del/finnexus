@@ -119,6 +119,11 @@ class FinanceBench(Sequence[EvaluationCase]):
     def __iter__(self) -> Iterator[EvaluationCase]:
         return iter(self._cases)
 
+    @property
+    def root(self) -> Path:
+        """Return the dataset directory used by explicit persistence helpers."""
+        return self._suite.root
+
     async def validate_corpus(self) -> None:
         """Fail clearly when required production chunks are unavailable."""
         await self._suite.validate_corpus(list(self._cases))
