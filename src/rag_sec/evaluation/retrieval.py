@@ -1,19 +1,15 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from statistics import mean
-from time import perf_counter
 
-from langchain_core.documents import Document
-
-from rag_sec.application.query import embed_query
 from rag_sec.application.runtime import RAGRuntime
 from rag_sec.evaluation.evaluators.retrieval import evaluate_retrieval
 from rag_sec.evaluation.models import (
     EvaluationCase,
     EvaluationRun,
-    EvaluationRunMetrics,
     RetrievedEvidence,
 )
+from rag_sec.evaluation.runner import run_dataset
 from rag_sec.retrieval.retriever import RetrievalMode
 
 
@@ -22,20 +18,6 @@ class RetrievalResult:
     metrics: dict[str, float]
     records: list[dict]
     runs: list[EvaluationRun]
-
-
-def to_evidence(document: Document, rank: int) -> RetrievedEvidence:
-    metadata = document.metadata
-    return RetrievedEvidence(
-        text=document.page_content,
-        rank=rank,
-        chunk_id=metadata.get("chunk_id"),
-        accession_number=metadata.get("accession_number"),
-        section=metadata.get("section"),
-        item=metadata.get("item"),
-        page=metadata.get("page"),
-        metadata=metadata,
-    )
 
 
 class RetrievalEvaluator:
@@ -52,52 +34,15 @@ class RetrievalEvaluator:
         top_k: int,
         ks: tuple[int, ...],
     ) -> RetrievalResult:
-        runs = [await self._run_case(case, mode=mode, top_k=top_k) for case in cases]
+        runs = await run_dataset(
+            self.runtime,
+            cases,
+            generate=False,
+            mode=mode,
+            top_k=top_k,
+        )
         metrics, records = aggregate_runs(cases, runs, ks=ks)
         return RetrievalResult(metrics=metrics, records=records, runs=runs)
-
-    async def _run_case(
-        self,
-        case: EvaluationCase,
-        *,
-        mode: RetrievalMode,
-        top_k: int,
-    ) -> EvaluationRun:
-        if not case.accession_number:
-            return EvaluationRun(case_id=case.id, error="Missing accession number.")
-        try:
-            embedding = None
-            embedding_ms = 0.0
-            if mode not in {"bm25", "fts", "lexical"}:
-                started = perf_counter()
-                embedding = await embed_query(
-                    case.question,
-                    model=self.runtime.embedding_model,
-                )
-                embedding_ms = (perf_counter() - started) * 1000
-            started = perf_counter()
-            documents = await self.runtime.retriever.search(
-                case.question,
-                query_embedding=embedding,
-                accession_number=case.accession_number,
-                top_k=top_k,
-                mode=mode,
-            )
-            retrieval_ms = (perf_counter() - started) * 1000
-            return EvaluationRun(
-                case_id=case.id,
-                retrieved_evidence=[
-                    to_evidence(document, rank)
-                    for rank, document in enumerate(documents, start=1)
-                ],
-                metrics=EvaluationRunMetrics(
-                    total_latency_ms=embedding_ms + retrieval_ms,
-                    embedding_latency_ms=embedding_ms,
-                    retrieval_latency_ms=retrieval_ms,
-                ),
-            )
-        except Exception as exc:  # noqa: BLE001 - isolate evaluation cases.
-            return EvaluationRun(case_id=case.id, error=str(exc))
 
 
 def aggregate_runs(
