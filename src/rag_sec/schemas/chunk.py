@@ -80,8 +80,6 @@ class ChunkDraft(ChunkBase):
     Chunk produced after splitting, before embedding.
     """
 
-    pass
-
 
 class EmbeddedChunk(ChunkBase):
     """

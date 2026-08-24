@@ -20,8 +20,8 @@ from rag_sec.models.base import (
 )
 
 if TYPE_CHECKING:
-    from rag_sec.models.filing import Filing
     from rag_sec.models.chunk import Chunk
+    from rag_sec.models.filing import Filing
 
 
 class ProcessingVersion(

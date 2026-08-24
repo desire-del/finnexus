@@ -61,8 +61,6 @@ class FilingCreate(FilingBase):
     through EdgarTools.
     """
 
-    pass
-
 
 class FilingRead(FilingBase):
     """
@@ -89,7 +87,7 @@ class FilingRead(FilingBase):
 class FilingContent(FinNexusSchema):
     """
     Raw content after fetching the SEC filing.
-    
+
     This object flows through the ingestion pipeline;
     it is not necessarily stored as-is in PostgreSQL.
     """
@@ -113,6 +111,7 @@ class FilingContent(FinNexusSchema):
     source_uri: HttpUrl
 
     fetched_at: datetime
+
 
 class FilingSection(FinNexusSchema):
     name: str

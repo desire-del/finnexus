@@ -37,20 +37,11 @@ class DatabaseManager:
 
     async def initialize(self) -> None:
         async with self.engine.begin() as connection:
+            await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
-            await connection.execute(
-                text(
-                    "CREATE EXTENSION IF NOT EXISTS vector"
-                )
-            )
+            await connection.run_sync(Base.metadata.create_all)
 
-            await connection.run_sync(
-                Base.metadata.create_all
-            )
-
-            await connection.execute(
-                text("DROP VIEW IF EXISTS active_chunks")
-            )
+            await connection.execute(text("DROP VIEW IF EXISTS active_chunks"))
 
             await connection.execute(
                 text(
@@ -166,7 +157,6 @@ class DatabaseManager:
         """
 
         async with self.session_factory() as session:
-
             try:
                 yield session
 
@@ -194,6 +184,4 @@ def get_database_manager() -> DatabaseManager:
 
     settings = get_settings()
 
-    return DatabaseManager(
-        database_url=settings.database_url
-    )
+    return DatabaseManager(database_url=settings.database_url)

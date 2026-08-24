@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from rag-sec!")
+"""FinNexus SEC retrieval package."""

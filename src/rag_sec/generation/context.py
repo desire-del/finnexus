@@ -18,7 +18,6 @@ class ContextBundle:
 
 
 class ContextBuilder:
-
     @track(
         name="generation.build_context",
         phase=Phase.GENERATION,
@@ -35,16 +34,13 @@ class ContextBuilder:
             }
         )
 
-        sources = {}
+        sources: dict[str, Document] = {}
         blocks = []
 
         seen_chunks = set()
 
         for document in documents:
-
-            chunk_id = document.metadata.get(
-                "chunk_id"
-            )
+            chunk_id = document.metadata.get("chunk_id")
 
             # Avoid duplicate retrieved chunks
             if chunk_id in seen_chunks:

@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Any
 
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -10,7 +11,7 @@ from rag_sec.config import get_settings
 def get_chat_model() -> BaseChatModel:
     """Build the configured chat provider on first use."""
     settings = get_settings().llm
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "temperature": settings.temperature,
     }
 

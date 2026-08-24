@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Any
 
 import tiktoken
 from langchain.embeddings import init_embeddings
@@ -11,7 +12,7 @@ from rag_sec.config import get_settings
 def get_embedding_model() -> Embeddings:
     """Build the configured embedding provider on first use."""
     settings = get_settings().embedding
-    kwargs = {}
+    kwargs: dict[str, Any] = {}
 
     if settings.provider.value == "openai":
         if settings.api_key:
