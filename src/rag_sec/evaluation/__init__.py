@@ -6,9 +6,12 @@ from rag_sec.evaluation.models import (
     ReferenceEvidence,
     RetrievedEvidence,
 )
+from rag_sec.evaluation.result import CaseEvaluationResult, EvaluationResult
 
 __all__ = [
+    "CaseEvaluationResult",
     "EvaluationCase",
+    "EvaluationResult",
     "EvaluationRun",
     "EvaluationRunMetrics",
     "EvaluationScore",
