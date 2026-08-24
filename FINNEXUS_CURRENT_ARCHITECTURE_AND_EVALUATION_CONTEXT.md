@@ -60,7 +60,14 @@ Docker Compose starts PostgreSQL/ParadeDB and Phoenix. PostgreSQL persists in th
     ├── cli/ingest.py               # ingestion CLI
     ├── config.py                   # environment-backed settings
     ├── database/                   # manager and persistence repositories
-    ├── evaluation/                 # dataset adapter, runner, metrics, CLI
+    ├── evaluation/
+    │   ├── api.py                  # public evaluate() orchestration
+    │   ├── result.py               # notebook-friendly result models
+    │   ├── metrics.py              # built-in and custom metric boundary
+    │   ├── artifacts.py            # explicit JSON persistence helper
+    │   ├── runner.py               # production pipeline execution per case
+    │   ├── datasets/financebench.py # first-class FinanceBench dataset
+    │   └── cli.py                  # legacy named wrappers around evaluate()
     ├── generation/                 # context, prompting, citations, usage
     ├── ingestion/                  # EDGAR ingestion pipeline
     ├── models/                     # SQLAlchemy ORM models
@@ -84,7 +91,8 @@ flowchart LR
     CLI[Ingestion CLI] --> ING[IngestionPipeline]
     UI[Streamlit] --> APP[Application use cases]
     MAIN[main.py] --> APP
-    EVAL[Evaluation runner] --> APP
+    EVAL[Notebook / evaluation CLI] --> EAPI[evaluate API]
+    EAPI --> APP
 
     APP --> RT[RAGRuntime]
     RT --> RET[Single Retriever]
@@ -308,38 +316,150 @@ the displayed local/network URL.
 
 ## 13. Evaluation architecture
 
-FinanceBench remains a dataset adapter, not a second RAG implementation.
+Evaluation is a small notebook-oriented Python API. It measures the configured
+production retrieval path; it does not implement a second retrieval pipeline.
+The primary mental model is:
 
 ```mermaid
 flowchart LR
-    RAW[FinanceBench JSONL] --> SUITE[FinanceBenchSuite]
-    SUITE --> CASES[EvaluationCase list]
-    CONFIG[RetrievalExperimentConfig] --> STUDY[FinanceBenchStudies.run]
-    CASES --> RUNNER[evaluation.runner]
-    STUDY --> RUNNER
+    RAW[FinanceBench JSONL] --> DATASET[FinanceBench dataset adapter]
+    DATASET --> CASES[Normalized EvaluationCase objects]
+    SETTINGS[RetrievalSettings] --> EVAL[evaluate]
+    METRICS[Metric callables] --> EVAL
+    CASES --> EVAL
+    EVAL --> RUNNER[evaluation.runner]
     RUNNER --> QUERY[application.retrieve_query]
     QUERY --> RET[Production Retriever]
-    RUNNER --> METRICS[Hit / Recall / RR / MRR at K]
-    METRICS --> ARTIFACT[Versioned local JSON]
+    EVAL --> RESULT[EvaluationResult]
+    RESULT --> SUMMARY[summary]
+    RESULT --> FRAME[to_dataframe]
+    RESULT -. explicit call .-> SAVE[save_result]
 ```
 
-The runner owns dataset iteration, failure isolation, timing, evidence
-normalization, metric calculation, and artifact persistence. It does not own an
-embedding implementation, Retriever algorithm, fusion algorithm, reranker, or
-Generator.
+### Dataset ownership
 
-Five CLI names map to small immutable configurations and one `run()` method:
+`await FinanceBench.load()` performs the benchmark-specific JSONL loading,
+document metadata join, accession resolution, unsupported-document filtering,
+evidence normalization, and case validation. The returned object is a sequence:
+`len(dataset)`, indexing, slicing, iteration, and `dataset.to_dataframe()` are
+supported. Its 136 SEC-compatible entries are normalized `EvaluationCase`
+objects and retain FinanceBench metadata such as question type, reasoning type,
+subset, justification, company, CIK, document name, period, and GICS sector.
+
+`evaluate()` is dataset-generic and never reads FinanceBench raw fields. When a
+dataset exposes `validate_corpus()`, the function calls it before execution. It
+does not ingest missing filings.
+
+### Execution and results
+
+The public async function is:
+
+```python
+await evaluate(dataset=dataset, settings=settings, metrics=metrics)
+```
+
+It applies the supplied `RetrievalSettings` to `RAGRuntime`, warms retrieval,
+and delegates each case to `evaluation.runner.run_dataset()`. The runner calls
+`application.retrieve_query()`, the same path used by the application. Cases
+run sequentially. Pipeline failures and custom-metric failures are isolated per
+case and recorded instead of aborting the complete dataset.
+
+If no runtime is supplied, `evaluate()` creates and closes one. A caller may
+provide a runtime to reuse already-warmed process resources across experiments;
+that caller then owns shutdown.
+
+`EvaluationResult` contains dataset metadata, the exact retrieval settings,
+aggregate metric means, and one `CaseEvaluationResult` per input case. Each case
+result retains the normalized case, `EvaluationRun`, retrieved evidence, timing,
+error, and metric scores. `summary()` returns configuration identifiers,
+execution counts, and aggregate metrics. `to_dataframe()` produces one row per
+case with analysis fields, configuration values, timings, errors, and metric
+columns; full evidence and model objects remain available as object columns.
+
+### Metrics and extension point
+
+`retrieval_metrics(ks=[...])` creates Hit@K, Recall@K, and reciprocal-rank@K
+callables using the frozen `EvidenceMatchConfig`. Reciprocal-rank values are
+aggregated under MRR@K names. A custom metric only needs the signature
+`metric(case, run) -> float | None`; there is no registry or plugin system.
+
+### Minimal notebook workflow
+
+The following cells are the intended primary experiment interface:
+
+```python
+from rag_sec.config import RetrievalSettings
+from rag_sec.evaluation import evaluate, retrieval_metrics, save_result
+from rag_sec.evaluation.datasets import FinanceBench
+```
+
+```python
+dataset = await FinanceBench.load()
+dataset.to_dataframe().head()
+```
+
+```python
+settings = RetrievalSettings(
+    mode="dense",
+    top_k=20,
+    dense_candidate_k=20,
+)
+metrics = retrieval_metrics(ks=[1, 3, 5, 10, 20])
+
+result = await evaluate(
+    dataset=dataset,
+    settings=settings,
+    metrics=metrics,
+)
+result.summary()
+```
+
+```python
+results_df = result.to_dataframe()
+results_df.groupby("question_type")["hit@5"].mean().sort_values()
+```
+
+Changing the experiment only requires a new configuration:
+
+```python
+bm25_result = await evaluate(
+    dataset=dataset,
+    settings=RetrievalSettings(
+        mode="bm25",
+        top_k=20,
+        bm25_candidate_k=20,
+    ),
+    metrics=metrics,
+)
+```
+
+`evaluate()` never writes an artifact. Persistence is an explicit caller
+decision:
+
+```python
+save_result(result, "data/evaluation/financebench/my_dense_run.json")
+```
+
+`save_result()` writes JSON atomically and refuses to overwrite an existing
+path. The file contains schema version, dataset metadata, settings, aggregate
+metrics, and normalized case/run/score records.
+
+### Compatibility CLI
+
+The old named commands remain convenience wrappers, not the experiment model:
 
 ```bash
-uv run python -m rag_sec.evaluation.cli baseline
-uv run python -m rag_sec.evaluation.cli fts
-uv run python -m rag_sec.evaluation.cli bm25
-uv run python -m rag_sec.evaluation.cli hybrid-fts
-uv run python -m rag_sec.evaluation.cli hybrid-bm25
+uv run scripts/evaluate_financebench.py baseline
+uv run scripts/evaluate_financebench.py fts
+uv run scripts/evaluate_financebench.py bm25
+uv run scripts/evaluate_financebench.py hybrid-fts
+uv run scripts/evaluate_financebench.py hybrid-bm25
 ```
 
-Artifacts are written atomically and existing paths are never overwritten.
-Changing an experiment requires a new artifact name.
+Running the script without an argument still selects `baseline`. The wrapper
+maps the name to `RetrievalSettings`, calls the same `evaluate()`, and then
+explicitly calls `save_result()`. The former `FinanceBenchStudies` and
+`RetrievalEvaluator` orchestration layers have been removed.
 
 ### Frozen evaluation behavior
 
@@ -380,8 +500,10 @@ PostgreSQL.
 
 The removed evaluation code embedded queries itself, called Retriever internals,
 implemented a second weighted RRF, built candidate unions, and wired an
-evaluation-only reranker. The current runner calls `retrieve_query()`, which in
-turn calls the same configured production Retriever used by the application.
+evaluation-only reranker. A later API refactor also removed named Study and
+RetrievalEvaluator layers. The current `evaluate()` function calls the runner,
+which calls `retrieve_query()` and therefore the same configured production
+Retriever used by the application.
 
 ## 15. Current limitations and extension points
 
@@ -397,3 +519,6 @@ turn calls the same configured production Retriever used by the application.
 - Query rewriter, analyzer, production reranker, and API layer are absent.
 - New optional query stages should be added in `application/query.py` and then
   consumed by the evaluation runner, never implemented only in evaluation.
+- Historical `*_pipeline_v2.json` files use the earlier artifact shape. New
+  files written with `save_result()` use schema version 1 and store normalized
+  case, run, and score objects. There is no artifact migration utility.
