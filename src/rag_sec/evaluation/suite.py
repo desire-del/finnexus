@@ -99,18 +99,6 @@ class FinanceBenchSuite:
                 "Run `uv run scripts/prepare_financebench_corpus.py` first."
             )
 
-    def artifact_path(self, filename: str) -> Path:
-        return self.root / filename
-
-    @staticmethod
-    def embedding_metadata() -> dict[str, str | int]:
-        embedding = get_settings().embedding
-        return {
-            "embedding_provider": embedding.provider.value,
-            "embedding_model": embedding.model_name,
-            "embedding_dimension": embedding.dimension,
-        }
-
     def _validate_input_files(self) -> None:
         missing = [
             path

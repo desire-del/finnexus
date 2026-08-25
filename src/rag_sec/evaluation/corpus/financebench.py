@@ -37,15 +37,6 @@ class AccessionResolutionResult:
     unresolved_documents: dict[str, str] = field(default_factory=dict)
     unsupported_documents: dict[str, str] = field(default_factory=dict)
 
-    @property
-    def ready(self) -> bool:
-        return not self.unresolved_documents
-
-    @property
-    def unique_accessions(self) -> list[str]:
-        return get_unique_accessions(self.cases)
-
-
 def _read_accession_cache(path: Path | None) -> dict[str, str]:
     if path is None or not path.is_file():
         return {}
