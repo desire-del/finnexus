@@ -2,10 +2,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 
-from rag_sec.evaluation.models import (
-    ReferenceEvidence,
-    RetrievedEvidence,
-)
+from rag_sec.evaluation.models import ReferenceEvidence, RetrievedEvidence
 
 
 @dataclass(frozen=True)
@@ -18,18 +15,11 @@ class EvidenceMatchConfig:
 
 
 def normalize_text(text: str) -> str:
-    tokens = re.findall(
-        r"[a-z0-9]+",
-        text.casefold(),
-    )
-
+    tokens = re.findall(r"[a-z0-9]+", text.casefold())
     return " ".join(tokens)
 
 
-def token_recall(
-    reference: str,
-    candidate: str,
-) -> float:
+def token_recall(reference: str, candidate: str) -> float:
     reference_tokens = reference.split()
     candidate_tokens = candidate.split()
 
@@ -39,7 +29,6 @@ def token_recall(
     reference_counts = Counter(reference_tokens)
     candidate_counts = Counter(candidate_tokens)
     matched = sum((reference_counts & candidate_counts).values())
-
     return matched / len(reference_tokens)
 
 
@@ -57,24 +46,18 @@ def local_token_recall(
         raise ValueError("Local window stride must be positive.")
 
     reference_tokens = reference.split()
-
     if not reference_tokens:
         return 0.0
-
     if len(reference_tokens) <= window_size:
         return token_recall(reference, candidate)
 
     best_score = 0.0
-
     for start in range(0, len(reference_tokens), stride):
         window = reference_tokens[start : start + window_size]
-
         if len(window) < window_size // 2:
             break
 
-        score = token_recall(" ".join(window), candidate)
-        best_score = max(best_score, score)
-
+        best_score = max(best_score, token_recall(" ".join(window), candidate))
         if best_score == 1.0:
             break
 
@@ -108,29 +91,24 @@ def evidence_matches(
 
     reference_text = normalize_text(reference.text)
     retrieved_text = normalize_text(retrieved.text)
-
     if not reference_text or not retrieved_text:
         return False
 
     reference_tokens = reference_text.split()
     retrieved_tokens = retrieved_text.split()
-
     if len(reference_tokens) >= config.min_tokens and reference_text in retrieved_text:
         return True
-
     if len(retrieved_tokens) >= config.min_tokens and retrieved_text in reference_text:
         return True
-
-    full_recall = token_recall(reference_text, retrieved_text)
-
-    if full_recall >= config.min_token_recall:
+    if token_recall(reference_text, retrieved_text) >= config.min_token_recall:
         return True
 
-    local_recall = local_token_recall(
-        reference_text,
-        retrieved_text,
-        window_size=config.local_window_tokens,
-        stride=config.local_window_stride,
+    return (
+        local_token_recall(
+            reference_text,
+            retrieved_text,
+            window_size=config.local_window_tokens,
+            stride=config.local_window_stride,
+        )
+        >= config.min_local_token_recall
     )
-
-    return local_recall >= config.min_local_token_recall

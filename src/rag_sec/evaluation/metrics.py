@@ -1,15 +1,13 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 
-from rag_sec.evaluation.evaluators.matching import EvidenceMatchConfig
-from rag_sec.evaluation.evaluators.retrieval import (
-    hit_at_k,
-    recall_at_k,
-    reciprocal_rank,
-)
+from rag_sec.evaluation.matching import EvidenceMatchConfig, evidence_matches
 from rag_sec.evaluation.models import EvaluationCase, EvaluationRun
 
-MetricFunction = Callable[[EvaluationCase, EvaluationRun], float | None]
+MetricValue = float | None
+MetricResult = MetricValue | Awaitable[MetricValue]
+MetricFunction = Callable[[EvaluationCase, EvaluationRun], MetricResult]
+SyncMetricFunction = Callable[[EvaluationCase, EvaluationRun], MetricValue]
 
 
 @dataclass(frozen=True)
@@ -20,7 +18,7 @@ class EvaluationMetric:
     function: MetricFunction
     aggregate_name: str | None = None
 
-    def __call__(self, case: EvaluationCase, run: EvaluationRun) -> float | None:
+    def __call__(self, case: EvaluationCase, run: EvaluationRun) -> MetricResult:
         return self.function(case, run)
 
     @property
@@ -31,7 +29,64 @@ class EvaluationMetric:
 Metric = EvaluationMetric | MetricFunction
 
 
-def _requires_references(function: MetricFunction) -> MetricFunction:
+def hit_at_k(
+    case: EvaluationCase,
+    run: EvaluationRun,
+    k: int,
+    *,
+    config: EvidenceMatchConfig,
+) -> float:
+    top_k = sorted(run.retrieved_evidence, key=lambda evidence: evidence.rank)[:k]
+    return float(
+        any(
+            any(
+                evidence_matches(reference, evidence, config=config)
+                for reference in case.reference_evidence
+            )
+            for evidence in top_k
+        )
+    )
+
+
+def reciprocal_rank(
+    case: EvaluationCase,
+    run: EvaluationRun,
+    k: int,
+    *,
+    config: EvidenceMatchConfig,
+) -> float:
+    evidence = sorted(run.retrieved_evidence, key=lambda item: item.rank)[:k]
+    for item in evidence:
+        if any(
+            evidence_matches(reference, item, config=config)
+            for reference in case.reference_evidence
+        ):
+            return 1.0 / item.rank
+    return 0.0
+
+
+def recall_at_k(
+    case: EvaluationCase,
+    run: EvaluationRun,
+    k: int,
+    *,
+    config: EvidenceMatchConfig,
+) -> float:
+    if not case.reference_evidence:
+        return 0.0
+
+    top_k = sorted(run.retrieved_evidence, key=lambda evidence: evidence.rank)[:k]
+    matched = sum(
+        any(
+            evidence_matches(reference, evidence, config=config)
+            for evidence in top_k
+        )
+        for reference in case.reference_evidence
+    )
+    return matched / len(case.reference_evidence)
+
+
+def _requires_references(function: SyncMetricFunction) -> SyncMetricFunction:
     def metric(case: EvaluationCase, run: EvaluationRun) -> float | None:
         if not case.reference_evidence:
             return None
@@ -40,21 +95,21 @@ def _requires_references(function: MetricFunction) -> MetricFunction:
     return metric
 
 
-def _hit_metric(k: int, config: EvidenceMatchConfig) -> MetricFunction:
+def _hit_metric(k: int, config: EvidenceMatchConfig) -> SyncMetricFunction:
     def metric(case: EvaluationCase, run: EvaluationRun) -> float:
         return hit_at_k(case, run, k, config=config)
 
     return _requires_references(metric)
 
 
-def _recall_metric(k: int, config: EvidenceMatchConfig) -> MetricFunction:
+def _recall_metric(k: int, config: EvidenceMatchConfig) -> SyncMetricFunction:
     def metric(case: EvaluationCase, run: EvaluationRun) -> float:
         return recall_at_k(case, run, k, config=config)
 
     return _requires_references(metric)
 
 
-def _reciprocal_rank_metric(k: int, config: EvidenceMatchConfig) -> MetricFunction:
+def _reciprocal_rank_metric(k: int, config: EvidenceMatchConfig) -> SyncMetricFunction:
     def metric(case: EvaluationCase, run: EvaluationRun) -> float:
         return reciprocal_rank(case, run, k, config=config)
 

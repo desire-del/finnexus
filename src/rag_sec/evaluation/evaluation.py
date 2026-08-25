@@ -1,6 +1,7 @@
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from inspect import isawaitable
 from statistics import mean
 from typing import TYPE_CHECKING, Any
 
@@ -244,6 +245,8 @@ async def evaluate(
                 else:
                     try:
                         value = metric(case, run)
+                        if isawaitable(value):
+                            value = await value
                     except Exception as exc:  # noqa: BLE001 - custom metric boundary.
                         score = EvaluationScore(
                             evaluator="evaluation",

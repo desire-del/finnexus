@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from rag_sec.evaluation.evaluators.matching import normalize_text, token_recall
+from rag_sec.evaluation.matching import normalize_text, token_recall
 from rag_sec.evaluation.models import EvaluationCase
 from rag_sec.ingestion.edgar_client import EdgarClient
 from rag_sec.ingestion.pipeline import IngestionPipeline
