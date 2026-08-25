@@ -12,6 +12,7 @@ dependencies = [
     "httpx>=0.28.1",
     "lxml>=6.1.1",
     "matplotlib>=3.11.1",
+    "pandas>=2.3.3",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "psycopg[binary]>=3.2.0",
@@ -39,6 +40,7 @@ dependencies = [
     "sentence-transformers>=6.0.0",
     "streamlit>=1.41.0",
     "torchvision>=0.28.0",
+    "datasets>=5.0.1",
 ]
 
 [dependency-groups]
@@ -46,15 +48,19 @@ dev = [
     "ipykernel>=7.3.0",
     "jupyter>=1.1.1",
     "mypy>=2.3.0",
+    "pandas-stubs>=2.3.3.260113",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.15.22",
 ]
 
+[[tool.mypy.overrides]]
+module = ["pgvector.*"]
+ignore_missing_imports = true
+
 
 
 [project.scripts]
-rag-sec = "rag_sec:main"
 rag-sec-ingest = "rag_sec.cli.ingest:main"
 
 [build-system]

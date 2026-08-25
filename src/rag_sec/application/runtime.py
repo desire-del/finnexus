@@ -3,6 +3,7 @@ from functools import cached_property, lru_cache
 
 from langchain_core.embeddings import Embeddings
 
+from rag_sec.config import get_settings
 from rag_sec.database.manager import (
     DatabaseManager,
     get_database_manager,
@@ -20,6 +21,7 @@ class RAGRuntime:
 
     def __init__(self) -> None:
         self._ready = False
+        self._retrieval_ready = False
         self._warmup_lock = asyncio.Lock()
 
     @cached_property
@@ -34,9 +36,7 @@ class RAGRuntime:
     def retriever(self) -> Retriever:
         return Retriever(
             embeddings=self.embedding_model,
-            top_k=5,
-            dense_top_k=20,
-            lexical_top_k=20,
+            settings=get_settings().retrieval,
         )
 
     @cached_property
@@ -49,8 +49,20 @@ class RAGRuntime:
 
     async def warmup(self) -> None:
         """Load and initialize every service before accepting queries."""
+        await self.warmup_retrieval()
+
         async with self._warmup_lock:
             if self._ready:
+                return
+
+            _ = self.generator
+
+            self._ready = True
+
+    async def warmup_retrieval(self) -> None:
+        """Initialize retrieval services without constructing the LLM."""
+        async with self._warmup_lock:
+            if self._retrieval_ready:
                 return
 
             await self.database.initialize()
@@ -59,9 +71,8 @@ class RAGRuntime:
                 self.embedding_model,
             )
             await self.retriever.initialize()
-            _ = self.generator
 
-            self._ready = True
+            self._retrieval_ready = True
 
     async def shutdown(self) -> None:
         """Release services that were loaded during warmup."""
@@ -71,6 +82,7 @@ class RAGRuntime:
         await self.database.close()
 
         self._ready = False
+        self._retrieval_ready = False
 
 
 @lru_cache(maxsize=1)

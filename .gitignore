@@ -221,6 +221,9 @@ __marimo__/
 
 logs/
 
+# Local datasets and model caches
+data/
+
 # Local exploration notebooks
 notebooks/
 

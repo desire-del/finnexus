@@ -13,7 +13,7 @@ from rag_sec.application import (
     get_runtime,
     list_available_filings,
 )
-from rag_sec.generation.generator import RAGAnswer
+from rag_sec.generation.models import RAGAnswer
 from rag_sec.ingestion.pipeline import IngestionPipeline
 from rag_sec.observability import (
     configure_observability,

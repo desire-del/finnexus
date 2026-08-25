@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import re
 from typing import Any
 
 import streamlit as st
@@ -145,6 +146,22 @@ def link_citations(content: str, sources: list[dict[str, Any]]) -> str:
     return linked_content
 
 
+def normalize_math(content: str) -> str:
+    """Normalize common LLM math delimiters for Streamlit Markdown.
+
+    Streamlit renders MathJax inside ``$...$`` and ``$$...$$``. Some models
+    emit display equations as ``[ \\text{...} ]`` or ``\\[...\\]`` instead.
+    Only bracketed lines beginning with a LaTeX command are converted, so SEC
+    citations such as ``[S1]`` remain untouched.
+    """
+    normalized = content.replace("\\[", "$$").replace("\\]", "$$")
+    bracketed_formula = re.compile(
+        r"(?m)^[ \t]*\[\s*(\\(?:text|frac|left|begin|mathrm|operatorname).+?)"
+        r"\s*\][ \t]*$"
+    )
+    return bracketed_formula.sub(lambda match: f"$$\n{match.group(1)}\n$$", normalized)
+
+
 def source_location(source: dict[str, Any]) -> str:
     location = [
         source.get("part"),
@@ -200,13 +217,13 @@ def render_sources(sources: list[dict[str, Any]]) -> None:
                         st.link_button(
                             "↗ Passage ciblé",
                             deep_link,
-                            use_container_width=True,
+                            width="stretch",
                         )
                     elif source_url:
                         st.link_button(
                             "↗ Ouvrir le filing",
                             source_url,
-                            use_container_width=True,
+                            width="stretch",
                         )
 
                 excerpt = source.get("excerpt")
@@ -322,13 +339,18 @@ def render_metrics(usage: dict[str, Any], metrics: dict[str, Any]) -> None:
         st.caption(
             "Débit retrieval : "
             f"{float(metrics.get('retrieval_throughput_documents_per_second', 0)):.1f} docs/s"
-            + (" · Tokens estimés par fallback" if estimated else " · Usage provider exact")
+            + (
+                " · Tokens estimés par fallback"
+                if estimated
+                else " · Usage provider exact"
+            )
         )
 
 
 def render_assistant_content(message: dict[str, Any]) -> None:
     sources = message.get("sources", [])
-    st.markdown(link_citations(message["content"], sources))
+    content = normalize_math(message["content"])
+    st.markdown(link_citations(content, sources))
     render_metrics(
         message.get("usage", {}),
         message.get("metrics", {}),
@@ -358,12 +380,16 @@ def render_sidebar() -> tuple[str, str, str]:
         )
         st.divider()
         st.header("Paramètres de recherche")
-        ticker = st.text_input(
-            "Ticker",
-            value="AAPL",
-            max_chars=12,
-            help="Ticker de la société tel qu’enregistré dans les filings.",
-        ).strip().upper()
+        ticker = (
+            st.text_input(
+                "Ticker",
+                value="AAPL",
+                max_chars=12,
+                help="Ticker de la société tel qu’enregistré dans les filings.",
+            )
+            .strip()
+            .upper()
+        )
         form_type = st.selectbox(
             "Type de filing",
             options=("10-K", "10-Q", "8-K", "20-F", "40-F"),
@@ -391,8 +417,7 @@ def render_sidebar() -> tuple[str, str, str]:
         if session_metrics["queries"]:
             st.subheader("Session live")
             average_latency = (
-                session_metrics["total_latency_ms"]
-                / session_metrics["queries"]
+                session_metrics["total_latency_ms"] / session_metrics["queries"]
             )
             session_columns = st.columns(2)
             session_columns[0].metric(
@@ -408,7 +433,7 @@ def render_sidebar() -> tuple[str, str, str]:
                 f"{session_metrics['output_tokens']:,} tokens sortants"
             )
 
-        if st.button("Effacer la conversation", use_container_width=True):
+        if st.button("Effacer la conversation", width="stretch"):
             st.session_state.messages = []
             st.session_state.session_metrics = {
                 "queries": 0,
@@ -563,16 +588,14 @@ def render_filings(
             ingestion_form_type = st.selectbox(
                 "Formulaire SEC",
                 options=("10-K", "10-Q", "8-K", "20-F", "40-F"),
-                index=("10-K", "10-Q", "8-K", "20-F", "40-F").index(
-                    default_form_type
-                ),
+                index=("10-K", "10-Q", "8-K", "20-F", "40-F").index(default_form_type),
                 key="ingestion-form-type",
             )
 
         ingest_submitted = st.form_submit_button(
             "Ingérer le dernier filing",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
 
     if ingest_submitted:
@@ -608,9 +631,7 @@ def render_filings(
                 )
 
                 if result.filings_processed:
-                    st.success(
-                        f"{result.filings_processed} filing indexé avec succès."
-                    )
+                    st.success(f"{result.filings_processed} filing indexé avec succès.")
                 elif result.filings_skipped:
                     st.info("Ce filing était déjà indexé avec ce profil.")
 
@@ -637,7 +658,7 @@ def render_filings(
     st.dataframe(
         records,
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         column_config={
             "SEC": st.column_config.LinkColumn(
                 "Source SEC",

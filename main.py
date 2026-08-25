@@ -1,7 +1,7 @@
 import asyncio
 
 from rag_sec.application import answer_query, get_runtime
-from rag_sec.generation.generator import RAGAnswer
+from rag_sec.generation.models import RAGAnswer
 from rag_sec.observability import (
     configure_observability,
     shutdown_observability,

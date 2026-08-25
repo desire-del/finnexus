@@ -1,11 +1,13 @@
+from dataclasses import dataclass
 from time import perf_counter
 
+from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from openinference.semconv.trace import OpenInferenceSpanKindValues
 
 from rag_sec.application.runtime import RAGRuntime
 from rag_sec.config import get_settings
-from rag_sec.generation.generator import QueryMetrics, RAGAnswer
+from rag_sec.generation.models import QueryMetrics, RAGAnswer
 from rag_sec.observability import (
     Phase,
     set_span_attributes,
@@ -13,6 +15,64 @@ from rag_sec.observability import (
     set_span_output,
     track,
 )
+from rag_sec.retrieval.retriever import RetrievalMode
+
+
+@dataclass(frozen=True)
+class RetrievalExecution:
+    documents: list[Document]
+    mode: RetrievalMode
+    embedding_latency_ms: float
+    retrieval_latency_ms: float
+
+
+@dataclass
+class QueryExecution:
+    answer: RAGAnswer
+    documents: list[Document]
+
+
+async def retrieve_query(
+    runtime: RAGRuntime,
+    question: str,
+    *,
+    ticker: str | None = None,
+    form_type: str | None = None,
+    accession_number: str | None = None,
+    top_k: int | None = None,
+    mode: RetrievalMode | None = None,
+) -> RetrievalExecution:
+    """Run the configured production Retriever without generation."""
+    selected_mode = runtime.retriever.resolve_mode(mode)
+    query_embedding: list[float] | None = None
+    embedding_latency_ms = 0.0
+
+    if runtime.retriever.requires_query_embedding(selected_mode):
+        embedding_started_at = perf_counter()
+        query_embedding = await embed_query(
+            question,
+            model=runtime.embedding_model,
+        )
+        embedding_latency_ms = (perf_counter() - embedding_started_at) * 1000
+
+    retrieval_started_at = perf_counter()
+    documents = await runtime.retriever.search(
+        question,
+        query_embedding=query_embedding,
+        ticker=ticker,
+        form_type=form_type,
+        accession_number=accession_number,
+        top_k=top_k,
+        mode=selected_mode,
+    )
+    retrieval_latency_ms = (perf_counter() - retrieval_started_at) * 1000
+
+    return RetrievalExecution(
+        documents=documents,
+        mode=selected_mode,
+        embedding_latency_ms=embedding_latency_ms,
+        retrieval_latency_ms=retrieval_latency_ms,
+    )
 
 
 @track(
@@ -34,6 +94,7 @@ async def embed_query(
 
     settings = get_settings()
     embedding_settings = settings.embedding
+
     span_input: dict[str, object] = {
         "query_length": len(query),
     }
@@ -42,11 +103,12 @@ async def embed_query(
         span_input["query"] = query
 
     set_span_input(span_input)
+
     set_span_attributes(
         {
             "rag.embedding.provider": embedding_settings.provider.value,
             "rag.embedding.model": embedding_settings.model_name,
-            "rag.embedding.expected_dimension": (embedding_settings.dimension),
+            "rag.embedding.expected_dimension": embedding_settings.dimension,
         }
     )
 
@@ -60,8 +122,18 @@ async def embed_query(
             f"received {actual_dimension}."
         )
 
-    set_span_attributes({"rag.embedding.dimension": actual_dimension})
-    set_span_output({"dimension": actual_dimension})
+    set_span_attributes(
+        {
+            "rag.embedding.dimension": actual_dimension,
+        }
+    )
+
+    set_span_output(
+        {
+            "dimension": actual_dimension,
+        }
+    )
+
     return vector
 
 
@@ -71,13 +143,19 @@ async def embed_query(
     tags=["workflow:rag"],
     span_kind=OpenInferenceSpanKindValues.AGENT,
 )
-async def answer_query(
+async def execute_query(
     runtime: RAGRuntime,
     question: str,
     *,
     ticker: str,
     form_type: str,
-) -> RAGAnswer:
+) -> QueryExecution:
+    """
+    Execute the complete RAG workflow.
+
+    Unlike answer_query(), this function also exposes the ordered documents
+    returned by the retriever. This is useful for evaluation and diagnostics.
+    """
     total_started_at = perf_counter()
     settings = get_settings()
 
@@ -88,6 +166,7 @@ async def answer_query(
             "rag.filing.form_type": form_type,
         }
     )
+
     trace_input: dict[str, object] = {
         "ticker": ticker,
         "form_type": form_type,
@@ -100,32 +179,34 @@ async def answer_query(
 
     set_span_input(trace_input)
 
-    embedding_started_at = perf_counter()
-    query_embedding = await embed_query(
+    retrieval = await retrieve_query(
+        runtime,
         question,
-        model=runtime.embedding_model,
-    )
-    embedding_latency_ms = (perf_counter() - embedding_started_at) * 1000
-
-    retrieval_started_at = perf_counter()
-    documents = await runtime.retriever.search(
-        question,
-        query_embedding=query_embedding,
         ticker=ticker,
         form_type=form_type,
     )
-    retrieval_latency_ms = (perf_counter() - retrieval_started_at) * 1000
+    documents = retrieval.documents
+    embedding_latency_ms = retrieval.embedding_latency_ms
+    retrieval_latency_ms = retrieval.retrieval_latency_ms
 
+    set_span_attributes({"rag.retrieval.mode": retrieval.mode})
+
+    # Generation
     generation_started_at = perf_counter()
+
     result = await runtime.generator.generate(
         question,
         documents,
     )
+
     generation_latency_ms = (perf_counter() - generation_started_at) * 1000
+
     total_latency_ms = (perf_counter() - total_started_at) * 1000
 
+    # Runtime metrics
     generation_seconds = generation_latency_ms / 1000
     retrieval_seconds = retrieval_latency_ms / 1000
+
     metrics = QueryMetrics(
         total_latency_ms=total_latency_ms,
         embedding_latency_ms=embedding_latency_ms,
@@ -137,17 +218,19 @@ async def answer_query(
             else 0
         ),
         retrieval_throughput_documents_per_second=(
-            len(documents) / retrieval_seconds
-            if retrieval_seconds > 0
-            else 0
+            len(documents) / retrieval_seconds if retrieval_seconds > 0 else 0
         ),
         retrieved_documents=len(documents),
         cited_sources=len(result.sources),
     )
+
     result = result.model_copy(
-        update={"metrics": metrics}
+        update={
+            "metrics": metrics,
+        }
     )
 
+    # Trace output
     trace_output: dict[str, object] = {
         "retrieved_documents": len(documents),
         "cited_sources": len(result.sources),
@@ -168,4 +251,31 @@ async def answer_query(
         trace_output["answer_length"] = len(result.answer)
 
     set_span_output(trace_output)
-    return result
+
+    return QueryExecution(
+        answer=result,
+        documents=documents,
+    )
+
+
+async def answer_query(
+    runtime: RAGRuntime,
+    question: str,
+    *,
+    ticker: str,
+    form_type: str,
+) -> RAGAnswer:
+    """
+    Execute a normal FinNexus query.
+
+    This remains the public application interface used by Streamlit and
+    other non-evaluation callers.
+    """
+    execution = await execute_query(
+        runtime=runtime,
+        question=question,
+        ticker=ticker,
+        form_type=form_type,
+    )
+
+    return execution.answer

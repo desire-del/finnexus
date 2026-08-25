@@ -7,9 +7,7 @@ def load_prompt(*path: str) -> str:
     prompt = files("rag_sec.prompts").joinpath(*path)
 
     if not prompt.is_file():
-        raise FileNotFoundError(
-            f"Prompt file not found: {'/'.join(path)}"
-        )
+        raise FileNotFoundError(f"Prompt file not found: {'/'.join(path)}")
 
     return prompt.read_text(encoding="utf-8").strip()
 
@@ -25,7 +23,5 @@ def render_prompt(
     except KeyError as exc:
         missing_variable = exc.args[0]
         raise ValueError(
-            "Missing variable "
-            f"'{missing_variable}' for prompt "
-            f"{'/'.join(path)}."
+            f"Missing variable '{missing_variable}' for prompt {'/'.join(path)}."
         ) from exc

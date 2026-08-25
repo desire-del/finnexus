@@ -7,5 +7,5 @@ class FinNexusSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",  # Forbid extra fields not defined in the schema
         from_attributes=True,  # Allow initialization from attributes
-        str_strip_whitespace=True
+        str_strip_whitespace=True,
     )

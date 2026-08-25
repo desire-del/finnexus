@@ -1,5 +1,6 @@
 from enum import Enum
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,24 +12,28 @@ class EmbeddingProvider(str, Enum):
     HUGGINGFACE = "huggingface"
     OLLAMA = "ollama"
 
+
 class LLMProvider(str, Enum):
     OPENAI = "openai"
     HUGGINGFACE = "huggingface"
     OLLAMA = "ollama"
 
+
 class AppEnvironment(str, Enum):
-    DEV="dev"
-    PROD="prod"
-    STAGING="staging"
+    DEV = "dev"
+    PROD = "prod"
+    STAGING = "staging"
+
 
 class ObservabilityProvider(str, Enum):
     PHOENIX = "phoenix"
-    LANGFUSE = "langfuse"
     NONE = "none"
+
 
 # Settings class for embedding configuration
 class EmbeddingSettings(BaseSettings):
     """Configuration dedicated to the embedding backend."""
+
     model_config = SettingsConfigDict(
         env_prefix="EMBEDDING_",
         env_file=".env",
@@ -99,9 +104,11 @@ class EmbeddingSettings(BaseSettings):
             case EmbeddingProvider.OLLAMA:
                 return self.ollama_dimension
 
+
 # Settings class for LLM configuration
 class LLMSettings(BaseSettings):
     """Configuration dedicated to the chat model backend."""
+
     model_config = SettingsConfigDict(
         env_prefix="LLM_",
         env_file=".env",
@@ -132,6 +139,28 @@ class LLMSettings(BaseSettings):
         description="Chat model sampling temperature.",
     )
 
+
+class RetrievalSettings(BaseSettings):
+    """Configuration shared by production and evaluation retrieval calls."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="RETRIEVAL_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    mode: Literal["dense", "fts", "bm25", "hybrid"] = "hybrid"
+    top_k: int = Field(default=5, gt=0)
+    dense_candidate_k: int = Field(default=20, gt=0)
+    fts_candidate_k: int = Field(default=20, gt=0)
+    bm25_candidate_k: int = Field(default=20, gt=0)
+    hybrid_lexical_backend: Literal["fts", "bm25"] = "fts"
+    rrf_k: int = Field(default=60, gt=0)
+    dense_weight: float = Field(default=1.0, gt=0)
+    lexical_weight: float = Field(default=1.0, gt=0)
+
+
 class PhoenixSettings(BaseSettings):
     """Phoenix/OpenTelemetry exporter configuration."""
 
@@ -159,25 +188,6 @@ class PhoenixSettings(BaseSettings):
         description="Export spans in batches.",
     )
 
-class LangfuseSettings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="LANGFUSE_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra = "ignore"
-    )
-    host: str = Field(
-        default="https://cloud.langfuse.com",
-        description="The host for the Langfuse observability provider. Default is 'https://cloud.langfuse.com'."
-    )
-    public_key: str = Field(
-        default="",
-        description="The public key for the Langfuse observability provider. This is required for authentication. Please set the public key in the environment variable 'LANGFUSE_PUBLIC_KEY'."
-    )
-    secret_key: str = Field(
-        default="",
-        description="The secret key for the Langfuse observability provider. This is required for authentication. Please set the secret key in the environment variable 'LANGFUSE_SECRET_KEY'."
-    )
 
 class ObservabilitySettings(BaseSettings):
     """Application tracing configuration."""
@@ -216,14 +226,11 @@ class ObservabilitySettings(BaseSettings):
         description="Maximum time used to flush traces at shutdown.",
     )
 
-
     @property
-    def config(self) -> PhoenixSettings | LangfuseSettings | None:
+    def config(self) -> PhoenixSettings | None:
         match self.provider:
             case ObservabilityProvider.PHOENIX:
                 return PhoenixSettings()
-            case ObservabilityProvider.LANGFUSE:
-                return LangfuseSettings()
             case ObservabilityProvider.NONE:
                 return None
 
@@ -241,6 +248,7 @@ class EdgarSettings(BaseSettings):
         description="Identity used for SEC EDGAR requests.",
     )
 
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -248,36 +256,29 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    environment: AppEnvironment = Field(
-        default=AppEnvironment.DEV
-    )
+    environment: AppEnvironment = Field(default=AppEnvironment.DEV)
 
     log_level: str = Field(default="INFO")
 
     json_logging: bool = Field(default=False)
 
     database_url: str = Field(
-        default=(
-            "postgresql+asyncpg://"
-            "postgres:postgres@localhost:5433/finexus"
-        )
+        default=("postgresql+asyncpg://postgres:postgres@localhost:5433/finexus")
     )
 
-    embedding: EmbeddingSettings = Field(
-        default_factory=EmbeddingSettings
-    )
+    embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
 
-    llm: LLMSettings = Field(
-        default_factory=LLMSettings
-    )
+    llm: LLMSettings = Field(default_factory=LLMSettings)
 
-    observability: ObservabilitySettings = Field(
-        default_factory=ObservabilitySettings
-    )
+    retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
 
+    observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+
+    # EdgarSettings reads its required identity from the EDGAR_ environment.
     edgar: EdgarSettings = Field(
-        default_factory=EdgarSettings
+        default_factory=EdgarSettings,  # type: ignore[arg-type]
     )
+
 
 @lru_cache
 def get_settings() -> Settings:

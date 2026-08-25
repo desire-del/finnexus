@@ -17,9 +17,7 @@ class IngestionRequest(FinNexusSchema):
 
     company_identifiers: list[str] = Field(
         min_length=1,
-        description=(
-            "Tickers or CIK values used to identify companies."
-        ),
+        description=("Tickers or CIK values used to identify companies."),
     )
 
     form_types: list[str] = Field(
