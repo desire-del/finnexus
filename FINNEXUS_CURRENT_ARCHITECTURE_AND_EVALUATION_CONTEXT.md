@@ -51,7 +51,7 @@ Docker Compose starts PostgreSQL/ParadeDB and Phoenix. PostgreSQL persists in th
 ├── docker-compose.yml              # PostgreSQL/ParadeDB and Phoenix
 ├── scripts/
 │   ├── prepare_financebench_corpus.py
-│   └── evaluate_financebench.py    # dense compatibility wrapper
+│   └── evaluate_financebench.py    # named compatibility configurations
 └── src/rag_sec/
     ├── application/
     │   ├── runtime.py              # lazy process lifecycle and warmup
@@ -61,13 +61,14 @@ Docker Compose starts PostgreSQL/ParadeDB and Phoenix. PostgreSQL persists in th
     ├── config.py                   # environment-backed settings
     ├── database/                   # manager and persistence repositories
     ├── evaluation/
-    │   ├── api.py                  # public evaluate() orchestration
-    │   ├── result.py               # notebook-friendly result models
-    │   ├── metrics.py              # built-in and custom metric boundary
-    │   ├── artifacts.py            # explicit JSON persistence helper
-    │   ├── runner.py               # production pipeline execution per case
+    │   ├── evaluation.py           # execution and notebook result models
+    │   ├── models.py               # shared normalized evaluation contracts
+    │   ├── metrics.py              # retrieval and custom metric boundary
+    │   ├── matching.py             # frozen evidence matching semantics
+    │   ├── persistence.py          # explicit JSON result persistence
+    │   ├── suite.py                # FinanceBench loading and DB preflight
     │   ├── datasets/financebench.py # first-class FinanceBench dataset
-    │   └── cli.py                  # legacy named wrappers around evaluate()
+    │   └── corpus/financebench.py  # accession resolution and preparation
     ├── generation/                 # context, prompting, citations, usage
     ├── ingestion/                  # EDGAR ingestion pipeline
     ├── models/                     # SQLAlchemy ORM models
@@ -327,8 +328,8 @@ flowchart LR
     SETTINGS[RetrievalSettings] --> EVAL[evaluate]
     METRICS[Metric callables] --> EVAL
     CASES --> EVAL
-    EVAL --> RUNNER[evaluation.runner]
-    RUNNER --> QUERY[application.retrieve_query]
+    EVAL --> CASE[_evaluate_case]
+    CASE --> QUERY[application.retrieve_query]
     QUERY --> RET[Production Retriever]
     EVAL --> RESULT[EvaluationResult]
     RESULT --> SUMMARY[summary]
@@ -359,10 +360,11 @@ await evaluate(dataset=dataset, settings=settings, metrics=metrics)
 ```
 
 It applies the supplied `RetrievalSettings` to `RAGRuntime`, warms retrieval,
-and delegates each case to `evaluation.runner.run_dataset()`. The runner calls
-`application.retrieve_query()`, the same path used by the application. Cases
-run sequentially. Pipeline failures and custom-metric failures are isolated per
-case and recorded instead of aborting the complete dataset.
+and evaluates each case through the private `_evaluate_case()` helper in the
+same module. That helper calls `application.retrieve_query()`, the same path
+used by the application. Cases run sequentially. Pipeline failures and
+custom-metric failures are isolated per case and recorded instead of aborting
+the complete dataset.
 
 If no runtime is supplied, `evaluate()` creates and closes one. A caller may
 provide a runtime to reuse already-warmed process resources across experiments;
@@ -380,8 +382,25 @@ columns; full evidence and model objects remain available as object columns.
 
 `retrieval_metrics(ks=[...])` creates Hit@K, Recall@K, and reciprocal-rank@K
 callables using the frozen `EvidenceMatchConfig`. Reciprocal-rank values are
-aggregated under MRR@K names. A custom metric only needs the signature
-`metric(case, run) -> float | None`; there is no registry or plugin system.
+aggregated under MRR@K names. These deterministic built-ins are synchronous.
+
+A custom metric may be synchronous:
+
+```python
+def custom_metric(case, run) -> float | None:
+    return float(bool(run.retrieved_evidence))
+```
+
+or asynchronous:
+
+```python
+async def custom_metric(case, run) -> float | None:
+    return await calculate_external_score(case, run)
+```
+
+`evaluate()` calls the metric and awaits its return value only when it is
+awaitable. There are no separate sync/async runners, registries, decorators, or
+plugin abstractions.
 
 ### Minimal notebook workflow
 
@@ -456,10 +475,11 @@ uv run scripts/evaluate_financebench.py hybrid-fts
 uv run scripts/evaluate_financebench.py hybrid-bm25
 ```
 
-Running the script without an argument still selects `baseline`. The wrapper
-maps the name to `RetrievalSettings`, calls the same `evaluate()`, and then
-explicitly calls `save_result()`. The former `FinanceBenchStudies` and
-`RetrievalEvaluator` orchestration layers have been removed.
+Running the script without an argument still selects `baseline`. The script
+maps the name to `RetrievalSettings`, calls the public `evaluate()` directly,
+and then explicitly calls `save_result()`. There is no intermediate evaluation
+CLI module. The former `FinanceBenchStudies`, `RetrievalEvaluator`, and
+`CLIExperiment` orchestration layers have been removed.
 
 ### Frozen evaluation behavior
 
@@ -500,10 +520,21 @@ PostgreSQL.
 
 The removed evaluation code embedded queries itself, called Retriever internals,
 implemented a second weighted RRF, built candidate unions, and wired an
-evaluation-only reranker. A later API refactor also removed named Study and
-RetrievalEvaluator layers. The current `evaluate()` function calls the runner,
-which calls `retrieve_query()` and therefore the same configured production
-Retriever used by the application.
+evaluation-only reranker. Later API simplifications removed named Study,
+RetrievalEvaluator, and CLI layers, then merged the former API, runner, and
+result modules into `evaluation.py`. The current `_evaluate_case()` calls
+`retrieve_query()` and therefore the same configured production Retriever used
+by the application.
+
+### Evaluation package simplification
+
+The controlled simplification reduced the package from 16 Python files and
+1,947 lines to 11 files and 1,581 lines. `api.py`, `runner.py`, and `result.py`
+became one cohesive `evaluation.py`; retrieval metric calculations moved into
+`metrics.py`; the frozen matcher became `matching.py`; `artifacts.py` became
+`persistence.py`; and the redundant evaluation CLI module was removed. Dataset
+semantics, retrieval behavior, metric thresholds, and public notebook imports
+were preserved.
 
 ## 15. Current limitations and extension points
 
@@ -518,7 +549,7 @@ Retriever used by the application.
   correctly skipped; fully lexical startup optimization remains possible.
 - Query rewriter, analyzer, production reranker, and API layer are absent.
 - New optional query stages should be added in `application/query.py` and then
-  consumed by the evaluation runner, never implemented only in evaluation.
+  consumed by `evaluation.py`, never implemented only in evaluation.
 - Historical `*_pipeline_v2.json` files use the earlier artifact shape. New
   files written with `save_result()` use schema version 1 and store normalized
   case, run, and score objects. There is no artifact migration utility.
