@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from rag_sec.evaluation.result import EvaluationResult
+    from rag_sec.evaluation.evaluation import EvaluationResult
 
 
 def write_artifact(path: Path, payload: dict[str, Any]) -> None:

@@ -1,4 +1,9 @@
 from rag_sec.evaluation.artifacts import save_result
+from rag_sec.evaluation.evaluation import (
+    CaseEvaluationResult,
+    EvaluationResult,
+    evaluate,
+)
 from rag_sec.evaluation.models import (
     EvaluationCase,
     EvaluationRun,
@@ -7,7 +12,6 @@ from rag_sec.evaluation.models import (
     ReferenceEvidence,
     RetrievedEvidence,
 )
-from rag_sec.evaluation.result import CaseEvaluationResult, EvaluationResult
 
 __all__ = [
     "CaseEvaluationResult",
@@ -24,5 +28,4 @@ __all__ = [
     "retrieval_metrics",
     "save_result",
 ]
-from rag_sec.evaluation.api import evaluate
 from rag_sec.evaluation.metrics import EvaluationMetric, Metric, retrieval_metrics
