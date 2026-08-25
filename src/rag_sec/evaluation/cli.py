@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Literal
 
 from rag_sec.config import RetrievalSettings, get_settings
-from rag_sec.evaluation.artifacts import save_result
 from rag_sec.evaluation.datasets import FinanceBench
 from rag_sec.evaluation.evaluation import EvaluationResult, evaluate
 from rag_sec.evaluation.metrics import retrieval_metrics
+from rag_sec.evaluation.persistence import save_result
 from rag_sec.observability import configure_observability, shutdown_observability
 from rag_sec.retrieval.retriever import RetrievalMode
 

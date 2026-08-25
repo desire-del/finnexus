@@ -8,10 +8,10 @@ if TYPE_CHECKING:
     from rag_sec.evaluation.evaluation import EvaluationResult
 
 
-def write_artifact(path: Path, payload: dict[str, Any]) -> None:
-    """Atomically persist an evaluation artifact."""
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
     if path.exists():
-        raise FileExistsError(f"Refusing to overwrite evaluation artifact: {path}")
+        raise FileExistsError(f"Refusing to overwrite evaluation result: {path}")
+
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = path.with_suffix(f"{path.suffix}.tmp")
     temporary_path.write_text(
@@ -22,12 +22,8 @@ def write_artifact(path: Path, payload: dict[str, Any]) -> None:
 
 
 def save_result(result: EvaluationResult, path: str | Path) -> Path:
-    """Explicitly persist a notebook evaluation result as JSON.
-
-    Evaluation execution never calls this helper automatically. Existing files
-    are deliberately preserved rather than overwritten.
-    """
-    artifact_path = Path(path)
+    """Explicitly persist an evaluation result as JSON without overwriting."""
+    result_path = Path(path)
     payload = {
         "schema_version": 1,
         "dataset": result.dataset_metadata,
@@ -44,5 +40,5 @@ def save_result(result: EvaluationResult, path: str | Path) -> Path:
             for case_result in result.cases
         ],
     }
-    write_artifact(artifact_path, payload)
-    return artifact_path
+    _write_json(result_path, payload)
+    return result_path

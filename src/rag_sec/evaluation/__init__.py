@@ -1,4 +1,3 @@
-from rag_sec.evaluation.artifacts import save_result
 from rag_sec.evaluation.evaluation import (
     CaseEvaluationResult,
     EvaluationResult,
@@ -12,6 +11,7 @@ from rag_sec.evaluation.models import (
     ReferenceEvidence,
     RetrievedEvidence,
 )
+from rag_sec.evaluation.persistence import save_result
 
 __all__ = [
     "CaseEvaluationResult",
